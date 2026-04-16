@@ -20,6 +20,7 @@ import { TokenRefreshMiddleware } from "./providers/token-refresh.middleware";
 import { ConvertingModule } from "./converting/converting.module";
 import { StorageModule } from "./providers/storage/storage.module";
 import { FoldersModule } from "./folders/folders.module";
+import { AiModule } from "./ai/ai.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { TasksService } from "./providers/tasks.service";
 import { TokenStoreModule } from "./providers/token-store/token-store.module";
@@ -84,7 +85,8 @@ import { TokenStoreModule } from "./providers/token-store/token-store.module";
       global: true
     },
     ConvertingModule,
-    FoldersModule
+    FoldersModule,
+    AiModule
   ],
   controllers: [],
   providers: [TasksService],

@@ -38,6 +38,7 @@ services:
       - "SSL_CERT_BASE64=${SSL_CERT_BASE64}"
       - "SCHOLARSOME_RECAPTCHA_SITE=${RECAPTCHA_SITE}"
       - "SCHOLARSOME_RECAPTCHA_SECRET=${RECAPTCHA_SECRET}"
+      - "GROQ_API_KEY=${GROQ_API_KEY}"
     volumes:
       - scholarsome:/data
     depends_on:

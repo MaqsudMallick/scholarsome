@@ -21,5 +21,6 @@ export const envSchema = joi.object().keys({
   SSL_CERT_BASE64: joi.string().allow(null, "").optional(),
   SCHOLARSOME_RECAPTCHA_SITE: joi.string().allow(null, "").optional(),
   SCHOLARSOME_RECAPTCHA_SECRET: joi.string().allow(null, "").optional(),
-  SCHOLARSOME_HEAD_SCRIPTS_BASE64: joi.string().allow(null, "").optional()
+  SCHOLARSOME_HEAD_SCRIPTS_BASE64: joi.string().allow(null, "").optional(),
+  GROQ_API_KEY: joi.string().allow(null, "").optional()
 }).unknown();

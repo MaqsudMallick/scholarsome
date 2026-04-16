@@ -34,6 +34,32 @@
         <button type="button" class="btn btn-primary me-2" (click)="modalRef?.hide(); addCardEvent.emit()">Add another card</button>
         <button type="button" class="btn btn-outline-primary" (click)="modalRef?.hide()">Finish editing</button>
       </div>
+      <div *ngIf="aiAvailable" class="mb-3 p-3 border rounded bg-light">
+        <div class="d-flex align-items-center mb-2">
+          <fa-icon [icon]="faWandMagicSparkles" class="me-2 text-primary"></fa-icon>
+          <span class="fw-bold">AI Assist</span>
+        </div>
+        <p class="text-secondary mb-2" style="font-size: 0.85rem;">Paste any content and AI will extract a term and definition for you.</p>
+        <textarea
+          class="form-control mb-2"
+          rows="3"
+          placeholder="Paste your content here..."
+          [(ngModel)]="aiContent"
+          [disabled]="aiLoading"
+        ></textarea>
+        <div class="d-flex align-items-center">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            (click)="generateWithAi()"
+            [disabled]="aiLoading || !aiContent || aiContent.trim().length < 10"
+          >
+            <span *ngIf="aiLoading" class="spinner-border spinner-border-sm me-1" role="status"></span>
+            {{ aiLoading ? 'Generating...' : 'Generate' }}
+          </button>
+          <span *ngIf="aiError" class="ms-3 text-danger" style="font-size: 0.85rem;">{{ aiError }}</span>
+        </div>
+      </div>
       <div class="row row-cols-1 row-cols-md-2">
         <div class="col border-end">
           <p class="fs-2">Term</p>

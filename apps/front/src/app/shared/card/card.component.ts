@@ -12,10 +12,12 @@ import {
 } from "@angular/core";
 import { AlertComponent } from "../alert/alert.component";
 import { faPenToSquare } from "@fortawesome/free-regular-svg-icons";
+import { faWandMagicSparkles } from "@fortawesome/free-solid-svg-icons";
 import { BsModalRef, BsModalService } from "ngx-bootstrap/modal";
 import { DomSanitizer } from "@angular/platform-browser";
 import { ViewportScroller } from "@angular/common";
 import { DeviceDetectorService } from "ngx-device-detector";
+import { AiService } from "../http/ai.service";
 import Quill from "quill";
 
 @Component({
@@ -28,6 +30,7 @@ export class CardComponent implements OnInit, AfterViewInit {
     private readonly bsModalService: BsModalService,
     private readonly vps: ViewportScroller,
     private readonly deviceService: DeviceDetectorService,
+    private readonly aiService: AiService,
     public readonly sanitizer: DomSanitizer
   ) {}
 
@@ -67,15 +70,26 @@ export class CardComponent implements OnInit, AfterViewInit {
   protected emptyCardAlert = false;
 
   protected isMobile = false;
+  protected aiAvailable = false;
+  protected aiContent = "";
+  protected aiLoading = false;
+  protected aiError = "";
 
   protected modalRef?: BsModalRef;
   protected readonly faPenToSquare = faPenToSquare;
+  protected readonly faWandMagicSparkles = faWandMagicSparkles;
 
   ngOnInit() {
     this.actualTerm = this.changingTerm ? this.changingTerm : "";
     this.actualDefinition = this.changingDefinition ? this.changingDefinition : "";
 
     this.isMobile = this.deviceService.isMobile();
+
+    if (this.editingEnabled) {
+      this.aiService.isAvailable().then((available) => {
+        this.aiAvailable = available;
+      });
+    }
   }
 
   ngAfterViewInit() {
@@ -153,6 +167,35 @@ export class CardComponent implements OnInit, AfterViewInit {
 
   moveCard(direction: number) {
     this.moveCardEvent.emit({ index: this.cardIndex, direction });
+  }
+
+  async generateWithAi() {
+    if (!this.aiContent || this.aiContent.trim().length < 10) {
+      this.aiError = "Please enter at least 10 characters of content.";
+      return;
+    }
+
+    this.aiLoading = true;
+    this.aiError = "";
+
+    const result = await this.aiService.generateCard(this.aiContent.trim());
+
+    this.aiLoading = false;
+
+    if (!result) {
+      this.aiError = "Failed to generate card. Please try again or fill in the card manually.";
+      return;
+    }
+
+    if (result.error) {
+      this.aiError = result.error;
+      return;
+    }
+
+    this.changingTerm = result.term;
+    this.changingDefinition = result.definition;
+    this.editCardEvent.emit();
+    this.aiContent = "";
   }
 
   // Set cursor position to end
