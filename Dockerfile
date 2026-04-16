@@ -16,6 +16,8 @@ RUN npm run build
 
 FROM node:lts-alpine
 
+RUN apk add --no-cache openssl
+
 WORKDIR /usr/src/app
 
 COPY . .
