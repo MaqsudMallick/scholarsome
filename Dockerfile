@@ -1,22 +1,20 @@
 # syntax=docker/dockerfile:1.3-labs
-FROM node:lts-alpine as builder
+FROM node:lts-slim as builder
 
 WORKDIR /usr/src/app
 
-RUN apk add --no-cache g++ make python3 py3-setuptools
+RUN apt-get update && apt-get install -y --no-install-recommends g++ make python3 openssl && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json .
-RUN npm install --legacy-peer-deps --ignore-scripts
-RUN npm rebuild bcrypt --build-from-source
-RUN npm rebuild sharp
+RUN npm install --legacy-peer-deps
 
 COPY . .
 RUN npm run generate
 RUN npm run build
 
-FROM node:lts-alpine
+FROM node:lts-slim
 
-RUN apk add --no-cache openssl
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
 
