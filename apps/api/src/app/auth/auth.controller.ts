@@ -29,8 +29,7 @@ import { ApiExcludeEndpoint, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { SkipThrottle, Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import { AuthenticatedGuard } from "./guards/authenticated.guard";
 import { PrismaService } from "../providers/database/prisma/prisma.service";
-import { RedisService } from "@liaoliaots/nestjs-redis";
-import Redis from "ioredis";
+import { TokenStoreService } from "../providers/token-store/token-store.service";
 import { DeleteApiKeyDto } from "./dto/deleteApiKey.dto";
 import { CreateApiKeyDto } from "./dto/createApiKey.dto";
 import { ResetEmailDto } from "./dto/resetEmail.dto";
@@ -39,18 +38,14 @@ import { ResetEmailDto } from "./dto/resetEmail.dto";
 @UseGuards(ThrottlerGuard)
 @Controller("auth")
 export class AuthController {
-  private readonly apiKeyRedis: Redis;
-
   constructor(
     private readonly usersService: UsersService,
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService
-  ) {
-    this.apiKeyRedis = this.redisService.getClient("apiToken");
-  }
+    private readonly tokenStore: TokenStoreService
+  ) {}
 
   /*
    *
@@ -78,7 +73,8 @@ export class AuthController {
       }
     });
 
-    this.apiKeyRedis.set(
+    this.tokenStore.set(
+        "apiToken",
         apiKey.apiKey,
         JSON.stringify({
           id: user.id,
@@ -117,7 +113,7 @@ export class AuthController {
       }
     });
 
-    this.apiKeyRedis.del(deleteApiKeyDto.apiKey);
+    this.tokenStore.del("apiToken", deleteApiKeyDto.apiKey);
 
     return {
       status: ApiResponseOptions.Success,

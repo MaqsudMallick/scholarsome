@@ -6,18 +6,13 @@ import {
 import { PassportStrategy } from "@nestjs/passport";
 import { Strategy } from "passport-custom";
 import { Request as ExpressRequest } from "express";
-import Redis from "ioredis";
-import { RedisService } from "@liaoliaots/nestjs-redis";
+import { TokenStoreService } from "../../providers/token-store/token-store.service";
 import { TokenUser } from "../types/token-user.interface";
 
 @Injectable()
 export class ApiKeyStrategy extends PassportStrategy(Strategy, "apiKey") {
-  private readonly apiKeyRedis: Redis;
-
-  constructor(private redisService: RedisService) {
+  constructor(private readonly tokenStore: TokenStoreService) {
     super();
-
-    this.apiKeyRedis = this.redisService.getClient("apiToken");
   }
 
   async validate(req: ExpressRequest): Promise<TokenUser> {
@@ -30,14 +25,14 @@ export class ApiKeyStrategy extends PassportStrategy(Strategy, "apiKey") {
       });
     }
 
-    const redisRes = await this.apiKeyRedis.get(req.header("x-api-key"));
+    const result = this.tokenStore.get("apiToken", apiKey);
 
-    if (!redisRes) {
+    if (!result) {
       throw new InternalServerErrorException("Failed to retrieve API key data");
     }
 
     return {
-      email: (JSON.parse(redisRes) as { id: string; email: string }).email
+      email: (JSON.parse(result) as { id: string; email: string }).email
     };
   }
 }

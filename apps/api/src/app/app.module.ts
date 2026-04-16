@@ -14,7 +14,6 @@ import { MailModule } from "./providers/mail/mail.module";
 import { HttpsRedirectMiddleware } from "./providers/https-redirect.middleware";
 import { CardsModule } from "./cards/cards.module";
 import { UsersModule } from "./users/users.module";
-import { RedisModule } from "@liaoliaots/nestjs-redis";
 import { JwtModule } from "@nestjs/jwt";
 import { MediaModule } from "./media/media.module";
 import { TokenRefreshMiddleware } from "./providers/token-refresh.middleware";
@@ -23,6 +22,7 @@ import { StorageModule } from "./providers/storage/storage.module";
 import { FoldersModule } from "./folders/folders.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { TasksService } from "./providers/tasks.service";
+import { TokenStoreModule } from "./providers/token-store/token-store.module";
 
 @Module({
   imports: [
@@ -63,27 +63,7 @@ import { TasksService } from "./providers/tasks.service";
     ConfigModule.forRoot({
       isGlobal: true
     }),
-    RedisModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        commonOptions: {
-          host: configService.get<string>("REDIS_HOST"),
-          port: configService.get<number>("REDIS_PORT"),
-          username: configService.get<string>("REDIS_USERNAME"),
-          password: configService.get<string>("REDIS_PASSWORD")
-        },
-        config: [
-          {
-            namespace: "apiToken",
-            keyPrefix: "apiToken&",
-            name: "apiToken"
-          },
-          {
-            namespace: "default"
-          }
-        ]
-      })
-    }),
+    TokenStoreModule,
     ScheduleModule.forRoot(),
     AuthModule,
     DatabaseModule,

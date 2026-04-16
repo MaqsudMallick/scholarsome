@@ -1,31 +1,15 @@
 version: "3.9"
 services:
-  redis:
-    image: redis:latest
+  mongodb:
+    image: mongo:latest
     expose:
-      - "6379:6379"
-    command: >
-      redis-server
-      --save 900 1
-      --appendonly yes
-      --appendfilename "appendonly.aof"
-      --dir "/data"
-      --requirepass ${DATABASE_PASSWORD}
-    volumes:
-      - redis:/data
-    restart: always
-  mariadb:
-    image: mariadb:latest
-    expose:
-      - "3306:3306"
+      - "27017:27017"
     environment:
-      - "MARIADB_RANDOM_ROOT_PASSWORD=yes"
-      - "MARIADB_ROOT_HOST=localhost"
-      - "MARIADB_DATABASE=scholarsome"
-      - "MARIADB_USER=scholarsome"
-      - "MARIADB_PASSWORD=${DATABASE_PASSWORD}"
+      - "MONGO_INITDB_ROOT_USERNAME=scholarsome"
+      - "MONGO_INITDB_ROOT_PASSWORD=${DATABASE_PASSWORD}"
+      - "MONGO_INITDB_DATABASE=scholarsome"
     volumes:
-      - mariadb:/var/lib/mysql
+      - mongodb:/data/db
     restart: always
   scholarsome:
     image: hwgilbert16/scholarsome:latest
@@ -35,14 +19,10 @@ services:
 #      - "(your ssl port):8443"
     environment:
       - "NODE_ENV=${NODE_ENV}"
-      - "DATABASE_URL=mysql://scholarsome:${DATABASE_PASSWORD}@mariadb:3306/scholarsome"
+      - "DATABASE_URL=mongodb://scholarsome:${DATABASE_PASSWORD}@mongodb:27017/scholarsome?authSource=admin"
       - "JWT_SECRET=${JWT_SECRET}"
       - "HTTP_PORT=${HTTP_PORT}"
       - "STORAGE_TYPE=${STORAGE_TYPE}"
-      - "REDIS_HOST=redis"
-      - "REDIS_PORT=6379"
-      - "REDIS_USERNAME="
-      - "REDIS_PASSWORD=${DATABASE_PASSWORD}"
       - "STORAGE_LOCAL_DIR=/data"
       - "S3_STORAGE_ENDPOINT=${S3_STORAGE_ENDPOINT}"
       - "S3_STORAGE_ACCESS_KEY=${S3_STORAGE_ACCESS_KEY}"
@@ -61,10 +41,8 @@ services:
     volumes:
       - scholarsome:/data
     depends_on:
-      - mariadb
-      - redis
+      - mongodb
     restart: always
 volumes:
-  redis:
-  mariadb:
+  mongodb:
   scholarsome:

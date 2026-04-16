@@ -6,15 +6,15 @@ import { HttpService } from "@nestjs/axios";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { createMock } from "@golevelup/ts-jest";
-import { RedisService } from "@liaoliaots/nestjs-redis";
 import { Request, Response } from "express";
 import { of } from "rxjs";
 import { User } from "@prisma/client";
+import { TokenStoreService } from "../providers/token-store/token-store.service";
 
 describe("AuthService", () => {
   let authService: AuthService;
   let jwtService: JwtService;
-  let redisService: RedisService;
+  let tokenStore: TokenStoreService;
 
   let userData = {
     id: 1,
@@ -58,15 +58,20 @@ describe("AuthService", () => {
           }
         },
         {
-          provide: RedisService,
-          useValue: createMock<RedisService>()
+          provide: TokenStoreService,
+          useValue: {
+            get: jest.fn().mockReturnValue(null),
+            set: jest.fn(),
+            expire: jest.fn(),
+            del: jest.fn()
+          }
         }
       ]
     }).compile();
 
     authService = await module.get(AuthService);
     jwtService = await module.get(JwtService);
-    redisService = await module.get(RedisService);
+    tokenStore = await module.get(TokenStoreService);
   });
 
   afterEach(() => {
@@ -146,8 +151,8 @@ describe("AuthService", () => {
 
       expect(jwtService.sign).toHaveBeenCalledWith({ id: user.id, sessionId: expect.any(String), email: user.email, type: "refresh" }, { expiresIn: "182d" });
       expect(res.cookie).toHaveBeenCalledWith("refresh_token", {}, { httpOnly: true, expires: expect.any(Date) });
-      expect(redisService.getClient().set).toHaveBeenCalled();
-      expect(redisService.getClient().expire).toHaveBeenCalled();
+      expect(tokenStore.set).toHaveBeenCalled();
+      expect(tokenStore.expire).toHaveBeenCalled();
     });
 
     it("should set the access token", () => {
@@ -245,7 +250,7 @@ describe("AuthService", () => {
 
       await authService.logout(req, res);
 
-      expect(redisService.getClient().del).toHaveBeenCalled();
+      expect(tokenStore.del).toHaveBeenCalled();
     });
   });
 });

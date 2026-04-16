@@ -6,29 +6,22 @@ import { HttpService } from "@nestjs/axios";
 import { ConfigService } from "@nestjs/config";
 import { lastValueFrom } from "rxjs";
 import { RecaptchaResponse, User as UserWithSets } from "@scholarsome/shared";
-import { RedisService } from "@liaoliaots/nestjs-redis";
-import Redis from "ioredis";
 import { Request, Response } from "express";
 import * as jwt from "jsonwebtoken";
 import { User } from "@prisma/client";
 import { JwtPayload } from "jwt-decode";
 import * as crypto from "crypto";
+import { TokenStoreService } from "../providers/token-store/token-store.service";
 
 @Injectable()
 export class AuthService {
-  private readonly refreshTokenRedis: Redis;
-  private readonly apiKeyRedis: Redis;
-
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
-    private readonly redisService: RedisService
-  ) {
-    this.refreshTokenRedis = this.redisService.getClient("default");
-    this.apiKeyRedis = this.redisService.getClient("apiToken");
-  }
+    private readonly tokenStore: TokenStoreService
+  ) {}
 
   /**
    * Decodes the access token JWT
@@ -49,7 +42,7 @@ export class AuthService {
 
       return decoded as { id: string; email: string; };
     } else if (req.header("x-api-key")) {
-      const info = await this.apiKeyRedis.get(req.header("x-api-key"));
+      const info = this.tokenStore.get("apiToken", req.header("x-api-key"));
 
       if (info) {
         return JSON.parse(info);
@@ -120,8 +113,8 @@ export class AuthService {
     const refreshTokenExpiry = new Date(new Date().setDate(new Date().getDate() + 182));
 
     res.cookie("refresh_token", refreshToken, { httpOnly: true, expires: refreshTokenExpiry });
-    this.refreshTokenRedis.set(sessionId, refreshToken);
-    this.refreshTokenRedis.expire(sessionId, Math.round((refreshTokenExpiry.getTime() - new Date().getTime()) / 1000));
+    this.tokenStore.set("default", sessionId, refreshToken);
+    this.tokenStore.expire("default", sessionId, Math.round((refreshTokenExpiry.getTime() - new Date().getTime()) / 1000));
 
     res.cookie("access_token", this.jwtService.sign(
         {
@@ -145,7 +138,7 @@ export class AuthService {
 
     const user = jwt.decode(req.cookies.access_token);
     if (user && "email" in (user as jwt.JwtPayload)) {
-      this.refreshTokenRedis.del(user["sessionId"]);
+      this.tokenStore.del("default", user["sessionId"]);
     }
   }
 }
