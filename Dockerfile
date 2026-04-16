@@ -3,12 +3,12 @@ FROM node:lts-alpine as builder
 
 WORKDIR /usr/src/app
 
-RUN apk add --no-cache g++ make python3
+RUN apk add --no-cache g++ make python3 py3-setuptools
 
 COPY package*.json .
 RUN npm install --legacy-peer-deps --ignore-scripts --platform=linuxmusl
 RUN npm rebuild bcrypt --build-from-source
-RUN npm rebuild sharp --build-from-source
+RUN npm install --platform=linuxmusl --arch=x64 sharp
 
 COPY . .
 RUN npm run generate
