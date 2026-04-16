@@ -6,9 +6,9 @@ WORKDIR /usr/src/app
 RUN apk add --no-cache g++ make python3 py3-setuptools
 
 COPY package*.json .
-RUN npm install --legacy-peer-deps --ignore-scripts --platform=linuxmusl
+RUN npm install --legacy-peer-deps --ignore-scripts
 RUN npm rebuild bcrypt --build-from-source
-RUN npm install --platform=linuxmusl --arch=x64 --legacy-peer-deps sharp
+RUN npm rebuild sharp
 
 COPY . .
 RUN npm run generate
