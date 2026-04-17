@@ -31,6 +31,9 @@ export class AiService {
       }
       return null;
     } catch (e: any) {
+      if (e.status === 401) {
+        return { term: "", definition: "", error: "Your session has expired. Please sign in again to use the AI feature." };
+      }
       if (e.status === 429) {
         return { term: "", definition: "", error: "AI usage limit reached. Please try again later or fill in the card manually." };
       }
