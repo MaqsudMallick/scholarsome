@@ -315,6 +315,25 @@ export class SetsController {
   @UseGuards(AuthenticatedGuard)
   @Patch(":setId")
   async updateSet(@Param() params: SetIdParam, @Body(HtmlDecodePipe) body: UpdateSetDto, @Request() req: ExpressRequest): Promise<ApiResponse<Set>> {
+    try {
+      return await this.updateSetImpl(params, body, req);
+    } catch (e) {
+      if (e instanceof UnauthorizedException || e instanceof NotFoundException) throw e;
+      // eslint-disable-next-line no-console
+      console.error("[PATCH /sets/:setId] failed", {
+        setId: params.setId,
+        cardCount: body.cards?.length,
+        name: e?.name,
+        code: e?.code,
+        message: e?.message,
+        meta: e?.meta,
+        stack: e?.stack
+      });
+      throw e;
+    }
+  }
+
+  private async updateSetImpl(params: SetIdParam, body: UpdateSetDto, req: ExpressRequest): Promise<ApiResponse<Set>> {
     const user = await this.authService.getUserInfo(req);
     if (!user) throw new UnauthorizedException({ status: "fail", message: "Invalid authentication to access the requested resource" });
 
