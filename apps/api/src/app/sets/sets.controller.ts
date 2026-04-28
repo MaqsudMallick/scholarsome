@@ -244,33 +244,28 @@ export class SetsController {
       }
     }
 
-    const create = await this.setsService.createSet({
+    const createData: Prisma.SetCreateInput = {
       id: uuid,
-      author: {
-        connect: {
-          email: author.email
-        }
-      },
+      author: { connect: { email: author.email } },
       title: body.title,
       description: body.description,
-      private: body.private,
-      folders: {
-        connect: body.folders ? body.folders.map((f) => {
-          return { id: f };
-        }) : undefined
-      },
-      cards: {
-        createMany: {
-          data: body.cards.map((c) => {
-            return {
-              index: c.index,
-              term: c.term,
-              definition: c.definition
-            };
-          })
-        }
-      }
-    });
+      private: body.private
+    };
+
+    if (body.folders && body.folders.length > 0) {
+      createData.folders = { connect: body.folders.map((f) => ({ id: f })) };
+    }
+
+    await this.setsService.createSet(createData);
+
+    await this.cardsService.createCardsForSet(uuid, body.cards.map((c) => ({
+      index: c.index,
+      term: c.term,
+      definition: c.definition
+    })));
+
+    const create = await this.setsService.set({ id: uuid });
+    if (!create) throw new NotFoundException({ status: "fail", message: "Set not found after creation" });
 
     for (const file of media) {
       const card = create.cards.find((c) => c.term.includes(file) || c.definition.includes(file));

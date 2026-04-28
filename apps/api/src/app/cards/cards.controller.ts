@@ -159,27 +159,23 @@ export class CardsController {
       media = [...media, ...definitionScanned.media];
     }
 
+    const created = await this.cardsService.createCard({
+      index: index,
+      term: body.term,
+      definition: body.definition,
+      set: { connect: { id: body.setId } }
+    });
+
+    for (const name of media) {
+      await this.cardsService.createCardMedia({
+        card: { connect: { id: created.id } },
+        name
+      });
+    }
+
     return {
       status: ApiResponseOptions.Success,
-      data: await this.cardsService.createCard({
-        index: index,
-        term: body.term,
-        definition: body.definition,
-        media: {
-          createMany: {
-            data: media.map((c) => {
-              return {
-                name: c
-              };
-            })
-          }
-        },
-        set: {
-          connect: {
-            id: body.setId
-          }
-        }
-      })
+      data: created
     };
   }
 
@@ -259,27 +255,25 @@ export class CardsController {
       }
     }
 
+    const updated = await this.cardsService.updateCard({
+      where: { id: params.cardId },
+      data: {
+        index: body.index,
+        term: body.term,
+        definition: body.definition
+      }
+    });
+
+    for (const name of media) {
+      await this.cardsService.createCardMedia({
+        card: { connect: { id: params.cardId } },
+        name
+      });
+    }
+
     return {
       status: ApiResponseOptions.Success,
-      data: await this.cardsService.updateCard({
-        where: {
-          id: params.cardId
-        },
-        data: {
-          index: body.index,
-          term: body.term,
-          definition: body.definition,
-          media: {
-            createMany: {
-              data: media.map((c) => {
-                return {
-                  name: c
-                };
-              })
-            }
-          }
-        }
-      })
+      data: updated
     };
   }
 

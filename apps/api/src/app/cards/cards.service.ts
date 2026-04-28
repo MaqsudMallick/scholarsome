@@ -166,24 +166,31 @@ export class CardsService {
     });
   }
 
+  // Standalone MongoDB has no transactions, so we can't use deleteMany/createMany
+  // (Prisma wraps those in transactions). Loop with single-document ops instead.
+
   async deleteCardsBySetId(setId: string): Promise<void> {
-    await this.prisma.card.deleteMany({ where: { setId } });
+    const existing = await this.prisma.card.findMany({
+      where: { setId },
+      select: { id: true }
+    });
+    for (const c of existing) {
+      await this.prisma.card.delete({ where: { id: c.id } });
+    }
   }
 
   async createCardsForSet(setId: string, cards: Array<{ id?: string; index: number; term: string; definition: string }>): Promise<void> {
-    if (cards.length === 0) return;
-    await this.prisma.card.createMany({
-      data: cards.map((c) => {
-        const data: { id?: string; setId: string; index: number; term: string; definition: string } = {
-          setId,
+    for (const c of cards) {
+      await this.prisma.card.create({
+        data: {
+          ...(c.id ? { id: c.id } : {}),
           index: c.index,
           term: c.term,
-          definition: c.definition
-        };
-        if (c.id) data.id = c.id;
-        return data;
-      })
-    });
+          definition: c.definition,
+          set: { connect: { id: setId } }
+        }
+      });
+    }
   }
 
   /**

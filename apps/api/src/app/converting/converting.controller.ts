@@ -265,30 +265,23 @@ export class ConvertingController {
     if (!cards) throw new BadRequestException("The set is not correctly formatted");
 
     const set = await this.setsService.createSet({
-      author: {
-        connect: {
-          email: author.email
-        }
-      },
+      author: { connect: { email: author.email } },
       title: body.title,
       description: body.description,
-      private: body.private,
-      cards: {
-        createMany: {
-          data: cards.map((c) => {
-            return {
-              index: c.index,
-              term: c.term,
-              definition: c.definition
-            };
-          })
-        }
-      }
+      private: body.private
     });
+
+    await this.cardsService.createCardsForSet(set.id, cards.map((c) => ({
+      index: c.index,
+      term: c.term,
+      definition: c.definition
+    })));
+
+    const populated = await this.setsService.set({ id: set.id });
 
     return {
       status: ApiResponseOptions.Success,
-      data: set
+      data: populated as Set
     };
   }
 
@@ -331,39 +324,29 @@ export class ConvertingController {
     const decoded = await this.convertingService.apkgToCardsAndMedia(file.buffer, uuid);
     if (!decoded) throw new UnsupportedMediaTypeException({ status: "fail", message: "Set is incompatible to import" });
 
-    const create = await this.setsService.createSet({
+    await this.setsService.createSet({
       id: uuid,
-      author: {
-        connect: {
-          email: author.email
-        }
-      },
+      author: { connect: { email: author.email } },
       title: body.title,
       description: body.description,
-      private: body.private === "true",
-      cards: {
-        createMany: {
-          data: decoded.cards.map((c) => {
-            return {
-              index: c.index,
-              term: c.term,
-              definition: c.definition
-            };
-          })
-        }
-      }
+      private: body.private === "true"
     });
+
+    await this.cardsService.createCardsForSet(uuid, decoded.cards.map((c) => ({
+      index: c.index,
+      term: c.term,
+      definition: c.definition
+    })));
+
+    const create = await this.setsService.set({ id: uuid });
+    if (!create) throw new NotFoundException({ status: "fail", message: "Set not found after creation" });
 
     for (const media of decoded.media) {
       const card = create.cards.find((c) => c.term.includes(media) || c.definition.includes(media));
       if (!card) continue;
 
       await this.cardsService.createCardMedia({
-        card: {
-          connect: {
-            id: card.id
-          }
-        },
+        card: { connect: { id: card.id } },
         name: media
       });
     }
@@ -412,30 +395,23 @@ export class ConvertingController {
     if (!cards) throw new BadRequestException();
 
     const set = await this.setsService.createSet({
-      author: {
-        connect: {
-          email: author.email
-        }
-      },
+      author: { connect: { email: author.email } },
       title: body.title,
       description: body.description,
-      private: body.private === "true",
-      cards: {
-        createMany: {
-          data: cards.map((c) => {
-            return {
-              index: c.index,
-              term: c.term,
-              definition: c.definition
-            };
-          })
-        }
-      }
+      private: body.private === "true"
     });
+
+    await this.cardsService.createCardsForSet(set.id, cards.map((c) => ({
+      index: c.index,
+      term: c.term,
+      definition: c.definition
+    })));
+
+    const populated = await this.setsService.set({ id: set.id });
 
     return {
       status: ApiResponseOptions.Success,
-      data: set
+      data: populated as Set
     };
   }
 }
