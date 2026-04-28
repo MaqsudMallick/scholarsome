@@ -18,6 +18,31 @@ $enable-negative-margins: true;
 @import '~quill/dist/quill.snow.css';
 @import '~katex/dist/katex.min.css';
 
+// Quill's snow theme only styles code blocks under .ql-editor. Card faces
+// render the same HTML via [innerHTML] outside that scope, so we mirror
+// Quill's code-block look for any pre.ql-syntax / code on the page.
+pre.ql-syntax {
+  background-color: #23241f;
+  color: #f8f8f2;
+  overflow: visible;
+  white-space: pre-wrap;
+  margin: 5px 0;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+:not(pre) > code {
+  background-color: #f0f0f0;
+  color: #c7254e;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.9em;
+}
+
 body {
   background-color: #f8fafb;
 }
