@@ -16,6 +16,10 @@ import { missingSitemapMiddleware } from "./app/providers/missing-sitemap.middle
 import { noIndexMiddleware } from "./app/providers/no-index.middleware";
 
 async function bootstrap() {
+  // eslint-disable-next-line no-console
+  const trace = (msg: string) => console.error(`[boot] ${msg}`);
+
+  trace("validating env");
   const validation = envSchema
       .prefs({ errors: { label: "key" } })
       .validate(process.env);
@@ -26,12 +30,15 @@ async function bootstrap() {
     );
     process.exit(1);
   }
+  trace("env ok");
 
   const server = express();
 
+  trace("creating Nest app");
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), {
-    bufferLogs: process.env.NODE_ENV !== "development"
+    bufferLogs: false
   });
+  trace("Nest app created");
 
   app.enableCors();
 
@@ -114,9 +121,15 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   fs.writeFileSync("./dist/api-spec.json", JSON.stringify(document));
 
+  trace("calling app.init()");
   await app.init();
+  trace("app.init() done");
 
-  http.createServer(server).listen(process.env.HTTP_PORT);
+  const port = process.env.PORT ?? process.env.HTTP_PORT;
+  trace(`listening on port ${port}`);
+  http.createServer(server).listen(port, () => {
+    trace(`listen callback fired on ${port}`);
+  });
 
   logger.log("Scholarsome has started!");
 }

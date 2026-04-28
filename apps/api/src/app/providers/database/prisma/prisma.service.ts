@@ -4,7 +4,11 @@ import { PrismaClient } from "@prisma/client";
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit {
   async onModuleInit() {
+    // eslint-disable-next-line no-console
+    console.error("[boot] prisma $connect start");
     await this.$connect();
+    // eslint-disable-next-line no-console
+    console.error("[boot] prisma $connect done");
   }
 
   async enableShutdownHooks(app: INestApplication) {
