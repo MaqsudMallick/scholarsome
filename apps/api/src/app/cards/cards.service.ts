@@ -161,13 +161,22 @@ export class CardsService {
    * @returns `Card` object that was deleted
    */
   async deleteCard(where: Prisma.CardWhereUniqueInput): Promise<PrismaCard> {
-    return this.prisma.card.delete({
-      where
+    const card = await this.prisma.card.findUnique({
+      where,
+      include: { media: true }
     });
+    if (!card) throw new Error("Card not found");
+
+    for (const m of card.media) {
+      await this.prisma.cardMedia.delete({ where: { id: m.id } });
+    }
+
+    return this.prisma.card.delete({ where: { id: card.id } });
   }
 
-  // Standalone MongoDB has no transactions, so we can't use deleteMany/createMany
-  // (Prisma wraps those in transactions). Loop with single-document ops instead.
+  // Standalone MongoDB has no transactions. Prisma wraps deleteMany/createMany
+  // and any cascade-delete in an internal transaction, so we walk the relation
+  // graph manually with single-document ops to avoid that.
 
   async deleteCardsBySetId(setId: string): Promise<void> {
     const existing = await this.prisma.card.findMany({
@@ -175,6 +184,13 @@ export class CardsService {
       select: { id: true }
     });
     for (const c of existing) {
+      const mediaRows = await this.prisma.cardMedia.findMany({
+        where: { cardId: c.id },
+        select: { id: true }
+      });
+      for (const m of mediaRows) {
+        await this.prisma.cardMedia.delete({ where: { id: m.id } });
+      }
       await this.prisma.card.delete({ where: { id: c.id } });
     }
   }

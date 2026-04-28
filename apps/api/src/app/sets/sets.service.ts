@@ -234,7 +234,10 @@ export class SetsService {
    * @returns `Set` object that was deleted
    */
   async deleteSet(where: Prisma.SetWhereUniqueInput): Promise<Set> {
-    return this.prisma.set.delete({
+    // Standalone MongoDB has no transactions, so we can't rely on Prisma's
+    // cascade-delete (it wraps cascades in a transaction). Walk the graph
+    // manually: CardMedia -> Card -> Set.
+    const set = await this.prisma.set.findUnique({
       where,
       include: {
         cards: true,
@@ -242,5 +245,23 @@ export class SetsService {
         author: true
       }
     });
+    if (!set) throw new Error("Set not found");
+
+    const cardIds = set.cards.map((c) => c.id);
+    if (cardIds.length > 0) {
+      const mediaRows = await this.prisma.cardMedia.findMany({
+        where: { cardId: { in: cardIds } },
+        select: { id: true }
+      });
+      for (const m of mediaRows) {
+        await this.prisma.cardMedia.delete({ where: { id: m.id } });
+      }
+      for (const id of cardIds) {
+        await this.prisma.card.delete({ where: { id } });
+      }
+    }
+
+    await this.prisma.set.delete({ where: { id: set.id } });
+    return set;
   }
 }
