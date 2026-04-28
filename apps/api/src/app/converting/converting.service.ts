@@ -370,13 +370,10 @@ export class ConvertingService {
   public async createZipOfSetMedia(setId: string): Promise<Buffer | false | null> {
     const zip = new AdmZip();
 
-    const media = await this.cardsService.cardMedias({
-      where: {
-        card: {
-          setId
-        }
-      }
-    });
+    const cardsForSet = await this.cardsService.cards({ where: { setId } });
+    const cardIds = cardsForSet.map((c) => c.id);
+    const media = await Promise.all(cardIds.map((cardId) => this.cardsService.cardMedias({ where: { cardId } })))
+        .then((arrs) => arrs.flat());
     if (!media) return false;
     if (media.length === 0) return null;
 

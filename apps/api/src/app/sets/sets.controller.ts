@@ -446,11 +446,7 @@ export class SetsController {
       if (!card) continue;
 
       await this.cardsService.createCardMedia({
-        card: {
-          connect: {
-            id: card.id
-          }
-        },
+        cardId: card.id,
         name: file.name
       });
     }
