@@ -62,13 +62,13 @@ function cardDocToCard(doc: CardDoc, mediaDocs: CardMediaDoc[]): Card {
 function folderDocToShallowFolder(doc: FolderDoc): Folder {
   return {
     id: doc._id,
-    parentFolderId: doc.parentFolderId,
+    parentFolderId: doc.parentFolderId ?? null,
     authorId: doc.authorId,
     name: doc.name,
-    description: doc.description,
+    description: doc.description ?? null,
     color: doc.color,
     private: doc.private,
-    setIds: doc.setIds,
+    setIds: doc.setIds ?? [],
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     author: undefined as never,
@@ -180,7 +180,7 @@ export class SetsService {
     await this.mongo.sets.updateOne(filter, { $set: update });
 
     if (params.data.folderIds !== undefined) {
-      const oldFolderIds = current.folderIds;
+      const oldFolderIds = current.folderIds ?? [];
       const newFolderIds = params.data.folderIds;
       const added = newFolderIds.filter((id) => !oldFolderIds.includes(id));
       const removed = oldFolderIds.filter((id) => !newFolderIds.includes(id));
@@ -226,11 +226,14 @@ export class SetsService {
   }
 
   private async populateSet(doc: SetDoc): Promise<Set> {
+    // Old Prisma-created docs may not have folderIds set if it was empty.
+    const folderIds = doc.folderIds ?? [];
+
     const [author, cardDocs, folderDocs] = await Promise.all([
       this.mongo.users.findOne({ _id: doc.authorId }),
       this.mongo.cards.find({ setId: doc._id }).sort({ index: 1 }).toArray(),
-      doc.folderIds.length > 0
-        ? this.mongo.folders.find({ _id: { $in: doc.folderIds } }).toArray()
+      folderIds.length > 0
+        ? this.mongo.folders.find({ _id: { $in: folderIds } }).toArray()
         : Promise.resolve([] as FolderDoc[])
     ]);
 
@@ -245,7 +248,7 @@ export class SetsService {
       title: doc.title,
       description: doc.description,
       private: doc.private,
-      folderIds: doc.folderIds,
+      folderIds,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
       author: authorBasic(author),

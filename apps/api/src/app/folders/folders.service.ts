@@ -47,9 +47,9 @@ function setDocToShallowSet(doc: SetDoc) {
     id: doc._id,
     authorId: doc.authorId,
     title: doc.title,
-    description: doc.description,
+    description: doc.description ?? null,
     private: doc.private,
-    folderIds: doc.folderIds,
+    folderIds: doc.folderIds ?? [],
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     author: undefined as never,
@@ -61,13 +61,13 @@ function setDocToShallowSet(doc: SetDoc) {
 function folderDocToShallowFolder(doc: FolderDoc) {
   return {
     id: doc._id,
-    parentFolderId: doc.parentFolderId,
+    parentFolderId: doc.parentFolderId ?? null,
     authorId: doc.authorId,
     name: doc.name,
-    description: doc.description,
+    description: doc.description ?? null,
     color: doc.color,
     private: doc.private,
-    setIds: doc.setIds,
+    setIds: doc.setIds ?? [],
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     author: undefined as never,
@@ -196,7 +196,7 @@ export class FoldersService {
 
     // Synchronize Set.folderIds membership with the new setIds list.
     if (params.data.setIds !== undefined) {
-      const oldSetIds = current.setIds;
+      const oldSetIds = current.setIds ?? [];
       const newSetIds = params.data.setIds;
       const added = newSetIds.filter((id) => !oldSetIds.includes(id));
       const removed = oldSetIds.filter((id) => !newSetIds.includes(id));
@@ -242,23 +242,25 @@ export class FoldersService {
   }
 
   private async populateFolder(doc: FolderDoc): Promise<Folder> {
+    const setIds = doc.setIds ?? [];
+
     const [author, sets, subfolders] = await Promise.all([
       this.mongo.users.findOne({ _id: doc.authorId }),
-      doc.setIds.length > 0
-        ? this.mongo.sets.find({ _id: { $in: doc.setIds } }).toArray()
+      setIds.length > 0
+        ? this.mongo.sets.find({ _id: { $in: setIds } }).toArray()
         : Promise.resolve([] as SetDoc[]),
       this.mongo.folders.find({ parentFolderId: doc._id }).toArray()
     ]);
 
     return {
       id: doc._id,
-      parentFolderId: doc.parentFolderId,
+      parentFolderId: doc.parentFolderId ?? null,
       authorId: doc.authorId,
       name: doc.name,
-      description: doc.description,
+      description: doc.description ?? null,
       color: doc.color,
       private: doc.private,
-      setIds: doc.setIds,
+      setIds,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
       author: author ? authorBasic(author) : undefined as never,
