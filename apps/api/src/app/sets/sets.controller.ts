@@ -333,13 +333,10 @@ export class SetsController {
     if (!(await this.setsService.verifySetOwnership(req, params.setId))) throw new UnauthorizedException({ status: "fail", message: "Invalid authentication to access the requested resource" });
 
     let newFolderIDs: string[] = [];
-    let removedFolderIDs: string[] = [];
 
     if (body.folders) {
       const currentFolderIDs = set.folders.map((f) => f.id);
-
       newFolderIDs = body.folders.filter((id) => !currentFolderIDs.includes(id));
-      removedFolderIDs = currentFolderIDs.filter((id) => !body.folders.includes(id));
     }
 
     for (const folderId of newFolderIDs) {

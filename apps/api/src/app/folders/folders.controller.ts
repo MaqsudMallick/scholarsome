@@ -351,14 +351,6 @@ export class FoldersController {
     }
 
     const currentSetIDs = folder.sets.map((s) => s.id);
-    let removedSetIDs: string[];
-
-    if (body.sets) {
-      removedSetIDs = currentSetIDs.filter((id) => !body.sets.includes(id));
-    } else {
-      removedSetIDs = currentSetIDs;
-    }
-
     const newSetIDs = body.sets ? body.sets.filter((id) => !currentSetIDs.includes(id)) : [];
 
     for (const setId of newSetIDs) {
@@ -372,14 +364,6 @@ export class FoldersController {
     }
 
     const currentSubfolderIDs = folder.subfolders.map((f) => f.id);
-    let removedSubfolderIDs: string[];
-
-    if (body.subfolders) {
-      removedSubfolderIDs = currentSubfolderIDs.filter((id) => !body.subfolders.includes(id));
-    } else {
-      removedSubfolderIDs = currentSubfolderIDs;
-    }
-
     const newSubfolderIDs = body.subfolders ? body.subfolders.filter((id) => !currentSubfolderIDs.includes(id)) : [];
 
     for (const subfolderId of newSubfolderIDs) {
