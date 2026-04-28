@@ -361,7 +361,7 @@ export class SetsController {
       const existingCards = await this.cardsService.cards({ where: { setId: set.id } });
 
       for (const [i, card] of body.cards.entries()) {
-        const completeCard = await this.cardsService.card({ id: card.id });
+        const completeCard = card.id ? await this.cardsService.card({ id: card.id }) : null;
         if (completeCard) {
           // for when media is deleted using the text editor
           // remove the associated files
@@ -437,12 +437,13 @@ export class SetsController {
         cards: body.cards ? {
           createMany: {
             data: body.cards.map((c) => {
-              return {
-                id: c.id ? c.id : undefined,
+              const cardData: { id?: string; index: number; term: string; definition: string } = {
                 index: c.index,
                 term: c.term,
                 definition: c.definition
               };
+              if (c.id) cardData.id = c.id;
+              return cardData;
             })
           }
         } : undefined
