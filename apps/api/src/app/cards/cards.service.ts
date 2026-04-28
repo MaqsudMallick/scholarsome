@@ -208,17 +208,24 @@ export class CardsService {
   }
 
   async createCardsForSet(setId: string, cards: Array<{ id?: string; index: number; term: string; definition: string }>): Promise<void> {
-    for (const c of cards) {
-      await this.prisma.card.create({
-        data: {
-          ...(c.id ? { id: c.id } : {}),
-          index: c.index,
-          term: c.term,
-          definition: c.definition,
-          set: { connect: { id: setId } }
-        }
-      });
-    }
+    if (cards.length === 0) return;
+
+    const now = new Date().toISOString();
+    const documents = cards.map((c) => ({
+      _id: c.id ?? crypto.randomUUID(),
+      setId,
+      index: c.index,
+      term: c.term,
+      definition: c.definition,
+      createdAt: { $date: now },
+      updatedAt: { $date: now }
+    }));
+
+    await this.prisma.$runCommandRaw({
+      insert: "Card",
+      documents,
+      ordered: true
+    });
   }
 
   /**
@@ -277,9 +284,36 @@ export class CardsService {
    * @returns Created `CardMedia` object
    */
   async createCardMedia(data: Prisma.CardMediaCreateInput): Promise<PrismaCardMedia> {
-    return this.prisma.cardMedia.create({
-      data
+    // Use a raw insert to avoid Prisma's transaction wrapper around nested
+    // writes (the `card: { connect: ... }` form would otherwise need a
+    // replica set).
+    const cardId = data.card?.connect?.id as string | undefined;
+    if (!cardId) {
+      throw new Error("createCardMedia requires card.connect.id");
+    }
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    await this.prisma.$runCommandRaw({
+      insert: "CardMedia",
+      documents: [{
+        _id: id,
+        cardId,
+        name: data.name as string,
+        createdAt: { $date: now },
+        updatedAt: { $date: now }
+      }],
+      ordered: true
     });
+
+    return {
+      id,
+      cardId,
+      name: data.name as string,
+      createdAt: new Date(now),
+      updatedAt: new Date(now)
+    };
   }
 
   /**
