@@ -12,7 +12,9 @@ services:
       - mongodb:/data/db
     restart: always
   scholarsome:
-    image: hwgilbert16/scholarsome:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     platform: "linux/amd64"
     ports:
       - "${HTTP_PORT}:${HTTP_PORT}"
