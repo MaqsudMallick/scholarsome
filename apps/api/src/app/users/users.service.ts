@@ -118,7 +118,7 @@ export class UsersService {
   async createUser(data: UserCreateData): Promise<User> {
     const now = new Date();
     const doc: UserDoc = {
-      _id: data.id ?? crypto.randomUUID(),
+      _id: data.id || crypto.randomUUID(),
       username: data.username,
       email: data.email,
       password: data.password,

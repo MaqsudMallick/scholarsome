@@ -124,7 +124,7 @@ export class FoldersService {
   async createFolder(data: FolderCreateData): Promise<Folder> {
     const now = new Date();
     const doc: FolderDoc = {
-      _id: data.id ?? crypto.randomUUID(),
+      _id: data.id || crypto.randomUUID(),
       parentFolderId: data.parentFolderId ?? null,
       authorId: data.authorId,
       name: data.name,

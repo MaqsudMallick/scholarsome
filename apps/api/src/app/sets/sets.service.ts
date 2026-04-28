@@ -145,7 +145,7 @@ export class SetsService {
   async createSet(data: SetCreateData): Promise<Set> {
     const now = new Date();
     const doc: SetDoc = {
-      _id: data.id ?? crypto.randomUUID(),
+      _id: data.id || crypto.randomUUID(),
       authorId: data.authorId,
       title: data.title,
       description: data.description ?? null,

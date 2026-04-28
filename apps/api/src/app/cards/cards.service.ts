@@ -144,7 +144,7 @@ export class CardsService {
   async createCard(data: CardCreateData): Promise<CardDoc> {
     const now = new Date();
     const doc: CardDoc = {
-      _id: data.id ?? crypto.randomUUID(),
+      _id: data.id || crypto.randomUUID(),
       setId: data.setId,
       index: data.index,
       term: data.term,
@@ -190,8 +190,10 @@ export class CardsService {
     if (cards.length === 0) return;
 
     const now = new Date();
+    // Front-end sends id: "" for new cards, so use a truthy check (not ??)
+    // to fall back to a generated UUID.
     const docs: CardDoc[] = cards.map((c) => ({
-      _id: c.id ?? crypto.randomUUID(),
+      _id: c.id || crypto.randomUUID(),
       setId,
       index: c.index,
       term: c.term,
