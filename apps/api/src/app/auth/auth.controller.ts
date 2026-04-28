@@ -16,7 +16,9 @@ import {
 import { UsersService } from "../users/users.service";
 import { AuthService } from "./auth.service";
 import { Request as ExpressRequest, Response } from "express";
-import { ApiResponse, ApiResponseOptions } from "@scholarsome/shared";
+import { ApiResponse, ApiResponseOptions, User } from "@scholarsome/shared";
+import * as crypto from "crypto";
+import { MongoService } from "../providers/database/mongo.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
@@ -24,11 +26,9 @@ import * as jwt from "jsonwebtoken";
 import { ConfigService } from "@nestjs/config";
 import * as bcrypt from "bcrypt";
 import { MailService } from "../providers/mail/mail.service";
-import { User } from "@prisma/client";
 import { ApiExcludeEndpoint, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { SkipThrottle, Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import { AuthenticatedGuard } from "./guards/authenticated.guard";
-import { PrismaService } from "../providers/database/prisma/prisma.service";
 import { TokenStoreService } from "../providers/token-store/token-store.service";
 import { DeleteApiKeyDto } from "./dto/deleteApiKey.dto";
 import { CreateApiKeyDto } from "./dto/createApiKey.dto";
@@ -43,7 +43,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
-    private readonly prisma: PrismaService,
+    private readonly mongo: MongoService,
     private readonly tokenStore: TokenStoreService
   ) {}
 
@@ -62,16 +62,13 @@ export class AuthController {
     const user = await this.authService.getUserInfo(req);
     if (!user) throw new UnauthorizedException({ status: "fail", message: "Invalid authentication to access the requested resource" });
 
-    const apiKey = await this.prisma.apiKey.create({
-      data: {
-        name: createApiKeyDto.name,
-        user: {
-          connect: {
-            id: user.id
-          }
-        }
-      }
-    });
+    const apiKey = {
+      _id: crypto.randomUUID(),
+      userId: user.id,
+      name: createApiKeyDto.name,
+      apiKey: `cuid_${crypto.randomBytes(16).toString("hex")}`
+    };
+    await this.mongo.apiKeys.insertOne(apiKey);
 
     this.tokenStore.set(
         "apiToken",
@@ -100,18 +97,10 @@ export class AuthController {
     const user = await this.authService.getUserInfo(req);
     if (!user) throw new UnauthorizedException({ status: "fail", message: "Invalid authentication to access the requested resource" });
 
-    const apiKey = await this.prisma.apiKey.findUnique({
-      where: {
-        apiKey: deleteApiKeyDto.apiKey
-      }
-    });
+    const apiKey = await this.mongo.apiKeys.findOne({ apiKey: deleteApiKeyDto.apiKey });
     if (!apiKey) throw new NotFoundException({ status: "fail", message: "API key was not found" });
 
-    await this.prisma.apiKey.delete({
-      where: {
-        apiKey: deleteApiKeyDto.apiKey
-      }
-    });
+    await this.mongo.apiKeys.deleteOne({ apiKey: deleteApiKeyDto.apiKey });
 
     this.tokenStore.del("apiToken", deleteApiKeyDto.apiKey);
 

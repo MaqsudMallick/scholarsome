@@ -5,12 +5,12 @@ import {
   LoginForm,
   RegisterForm,
   ResetForm,
-  SubmitResetForm
+  SubmitResetForm,
+  User
 } from "@scholarsome/shared";
 import { HttpClient, HttpErrorResponse, HttpResponse } from "@angular/common/http";
 import { lastValueFrom } from "rxjs";
 import { ReCaptchaV3Service } from "ng-recaptcha";
-import { User } from "@prisma/client";
 
 @Injectable({
   providedIn: "root"

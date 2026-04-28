@@ -1,217 +1,269 @@
 import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../providers/database/prisma/prisma.service";
-import { Prisma } from "@prisma/client";
-import { Folder } from "@scholarsome/shared";
+import * as crypto from "crypto";
+import { Filter } from "mongodb";
+import { Folder, UserBasic } from "@scholarsome/shared";
 import { Request as ExpressRequest } from "express";
 import { AuthService } from "../auth/auth.service";
 import { UsersService } from "../users/users.service";
+import { FolderDoc, MongoService, SetDoc, UserDoc } from "../providers/database/mongo.service";
+
+export interface FolderUniqueWhere {
+  id?: string;
+}
+
+export interface FolderCreateData {
+  id?: string;
+  name: string;
+  description?: string | null;
+  color: string;
+  private: boolean;
+  authorId: string;
+  parentFolderId?: string | null;
+  setIds?: string[];
+  subfolderIds?: string[];
+}
+
+export interface FolderUpdateData {
+  name?: string;
+  description?: string | null;
+  color?: string;
+  private?: boolean;
+  parentFolderId?: string | null;
+  setIds?: string[];
+  subfolderIds?: string[];
+}
+
+function authorBasic(doc: UserDoc): UserBasic {
+  return {
+    id: doc._id,
+    username: doc.username,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt
+  };
+}
+
+function setDocToShallowSet(doc: SetDoc) {
+  return {
+    id: doc._id,
+    authorId: doc.authorId,
+    title: doc.title,
+    description: doc.description,
+    private: doc.private,
+    folderIds: doc.folderIds,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    author: undefined as never,
+    cards: [],
+    folders: []
+  };
+}
+
+function folderDocToShallowFolder(doc: FolderDoc) {
+  return {
+    id: doc._id,
+    parentFolderId: doc.parentFolderId,
+    authorId: doc.authorId,
+    name: doc.name,
+    description: doc.description,
+    color: doc.color,
+    private: doc.private,
+    setIds: doc.setIds,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    author: undefined as never,
+    sets: [],
+    subfolders: []
+  };
+}
+
+function uniqueFilter(where: FolderUniqueWhere): Filter<FolderDoc> {
+  if (where.id) return { _id: where.id };
+  throw new Error("FolderUniqueWhere requires id");
+}
 
 @Injectable()
 export class FoldersService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly mongo: MongoService,
     private readonly authService: AuthService,
     private readonly usersService: UsersService
   ) {}
 
-  /**
-   * Verifies whether a folder belongs to a user given their access token cookie
-   *
-   * @param req Request object of the user
-   * @param folderId ID of the set to check against
-   *
-   * @returns Whether the folder belongs to the user
-   */
   public async verifyFolderOwnership(req: ExpressRequest, folderId: string): Promise<boolean> {
     const userCookie = await this.authService.getUserInfo(req);
     if (!userCookie) return false;
 
-    const user = await this.usersService.user({
-      id: userCookie.id
-    });
-
-    const folder = await this.folder({
-      id: folderId
-    });
+    const user = await this.usersService.user({ id: userCookie.id });
+    const folder = await this.folder({ id: folderId });
 
     if (!folder || !user) return false;
-
     return folder.author.id === user.id;
   }
 
-  /**
-   * Queries the database for every public folder's ID and when they were last modified
-   * Used for sitemap generation
-   *
-   * @returns Array of all folder IDs and when they were last updated
-   */
   async getSitemapFolderInfo(): Promise<{ id: string, updatedAt: Date }[]> {
-    return this.prisma.folder.findMany({
-      where: {
-        private: false
-      },
-      select: {
-        id: true,
-        updatedAt: true
-      }
-    });
+    const docs = await this.mongo.folders
+        .find({ private: false }, { projection: { _id: 1, updatedAt: 1 } })
+        .toArray();
+    return docs.map((d) => ({ id: d._id, updatedAt: d.updatedAt }));
   }
 
-  /**
-   * Queries the database for a unique folder
-   *
-   * @param folderWhereUniqueInput Prisma `FolderWhereUniqueInput` selector
-   *
-   * @returns Queried `Folder` object
-   */
-  async folder(
-      folderWhereUniqueInput: Prisma.FolderWhereUniqueInput
-  ): Promise<Folder | null> {
-    return this.prisma.folder.findUnique({
-      where: folderWhereUniqueInput,
-      include: {
-        sets: true,
-        subfolders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
-      }
-    });
+  async folder(where: FolderUniqueWhere): Promise<Folder | null> {
+    const doc = await this.mongo.folders.findOne(uniqueFilter(where));
+    if (!doc) return null;
+    return this.populateFolder(doc);
   }
 
-  /**
-   * Queries the database for multiple folders
-   *
-   * @param params.skip Optional, Prisma skip selector
-   * @param params.take Optional, Prisma take selector
-   * @param params.cursor Optional, Prisma cursor selector
-   * @param params.where Optional, Prisma where selector
-   * @param params.orderBy Optional, Prisma orderBy selector
-   *
-   * @returns Array of queried `Folder` objects
-   */
-  async folders(params: {
-    skip?: number;
-    take?: number;
-    cursor?: Prisma.FolderWhereUniqueInput;
-    where?: Prisma.FolderWhereInput;
-    orderBy?: Prisma.FolderOrderByWithRelationInput;
-  }): Promise<Folder[]> {
-    const { skip, take, cursor, where, orderBy } = params;
-    return this.prisma.folder.findMany({
-      skip,
-      take,
-      cursor,
-      where,
-      orderBy,
-      include: {
-        sets: true,
-        subfolders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
-      }
-    });
+  async folders(params: { where?: { authorId?: string } } = {}): Promise<Folder[]> {
+    const filter: Filter<FolderDoc> = {};
+    if (params.where?.authorId) filter.authorId = params.where.authorId;
+
+    const docs = await this.mongo.folders.find(filter).toArray();
+    return Promise.all(docs.map((d) => this.populateFolder(d)));
   }
 
-  /**
-   * Creates a folder in the database
-   *
-   * @param data Prisma `FolderCreateInput` selector
-   *
-   * @returns Created `Folder` object
-   */
-  async createFolder(data: Prisma.FolderCreateInput): Promise<Folder> {
-    return this.prisma.folder.create({
-      data,
-      include: {
-        sets: true,
-        subfolders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
-      }
-    });
+  async createFolder(data: FolderCreateData): Promise<Folder> {
+    const now = new Date();
+    const doc: FolderDoc = {
+      _id: data.id ?? crypto.randomUUID(),
+      parentFolderId: data.parentFolderId ?? null,
+      authorId: data.authorId,
+      name: data.name,
+      description: data.description ?? null,
+      color: data.color,
+      private: data.private,
+      setIds: data.setIds ?? [],
+      createdAt: now,
+      updatedAt: now
+    };
+    await this.mongo.folders.insertOne(doc);
+
+    if (doc.setIds.length > 0) {
+      await this.mongo.sets.updateMany(
+          { _id: { $in: doc.setIds } },
+          { $addToSet: { folderIds: doc._id } }
+      );
+    }
+
+    if (data.subfolderIds && data.subfolderIds.length > 0) {
+      await this.mongo.folders.updateMany(
+          { _id: { $in: data.subfolderIds } },
+          { $set: { parentFolderId: doc._id, updatedAt: new Date() } }
+      );
+    }
+
+    return this.populateFolder(doc);
   }
 
-  /**
-   * Updates a folder in the database
-   *
-   * @param params.where Prisma where selector
-   * @param params.data Prisma data selector
-   *
-   * @returns Updated `Folder` object
-   */
   async updateFolder(params: {
-    where: Prisma.FolderWhereUniqueInput;
-    data: Prisma.FolderUpdateInput;
+    where: FolderUniqueWhere;
+    data: FolderUpdateData;
   }): Promise<Folder> {
-    const { where, data } = params;
-    return this.prisma.folder.update({
-      data,
-      where,
-      include: {
-        sets: true,
-        subfolders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
+    const filter = uniqueFilter(params.where);
+    const current = await this.mongo.folders.findOne(filter);
+    if (!current) throw new Error("Folder not found");
+
+    const update: Partial<FolderDoc> = { updatedAt: new Date() };
+    if (params.data.name !== undefined) update.name = params.data.name;
+    if (params.data.description !== undefined) update.description = params.data.description;
+    if (params.data.color !== undefined) update.color = params.data.color;
+    if (params.data.private !== undefined) update.private = params.data.private;
+    if (params.data.parentFolderId !== undefined) update.parentFolderId = params.data.parentFolderId;
+    if (params.data.setIds !== undefined) update.setIds = params.data.setIds;
+
+    await this.mongo.folders.updateOne(filter, { $set: update });
+
+    if (params.data.subfolderIds !== undefined) {
+      const newSubfolderIds = params.data.subfolderIds;
+      const currentSubfolders = await this.mongo.folders
+          .find({ parentFolderId: current._id }, { projection: { _id: 1 } })
+          .toArray();
+      const currentSubfolderIds = currentSubfolders.map((f) => f._id);
+      const detached = currentSubfolderIds.filter((id) => !newSubfolderIds.includes(id));
+
+      if (detached.length > 0) {
+        await this.mongo.folders.updateMany(
+            { _id: { $in: detached } },
+            { $set: { parentFolderId: null, updatedAt: new Date() } }
+        );
       }
-    });
+      if (newSubfolderIds.length > 0) {
+        await this.mongo.folders.updateMany(
+            { _id: { $in: newSubfolderIds } },
+            { $set: { parentFolderId: current._id, updatedAt: new Date() } }
+        );
+      }
+    }
+
+    // Synchronize Set.folderIds membership with the new setIds list.
+    if (params.data.setIds !== undefined) {
+      const oldSetIds = current.setIds;
+      const newSetIds = params.data.setIds;
+      const added = newSetIds.filter((id) => !oldSetIds.includes(id));
+      const removed = oldSetIds.filter((id) => !newSetIds.includes(id));
+
+      if (added.length > 0) {
+        await this.mongo.sets.updateMany(
+            { _id: { $in: added } },
+            { $addToSet: { folderIds: current._id } }
+        );
+      }
+      if (removed.length > 0) {
+        await this.mongo.sets.updateMany(
+            { _id: { $in: removed } },
+            { $pull: { folderIds: current._id } }
+        );
+      }
+    }
+
+    const updated = await this.mongo.folders.findOne(filter);
+    if (!updated) throw new Error("Folder not found after update");
+    return this.populateFolder(updated);
   }
 
-  /**
-   * Deletes a folder from the database
-   *
-   * @param where Prisma `FolderWhereUniqueInput` selector
-   *
-   * @returns `Folder` object that was deleted
-   */
-  async deleteFolder(where: Prisma.FolderWhereUniqueInput): Promise<Folder> {
-    // disconnect subfolders
-    await this.prisma.folder.update({
-      where,
-      data: {
-        subfolders: {
-          set: []
-        }
-      }
-    });
+  async deleteFolder(where: FolderUniqueWhere): Promise<Folder> {
+    const filter = uniqueFilter(where);
+    const folder = await this.folder(where);
+    if (!folder) throw new Error("Folder not found");
 
-    return this.prisma.folder.delete({
-      where,
-      include: {
-        sets: true,
-        subfolders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
-      }
-    });
+    // Detach subfolders from this parent.
+    await this.mongo.folders.updateMany(
+        { parentFolderId: folder.id },
+        { $set: { parentFolderId: null, updatedAt: new Date() } }
+    );
+
+    // Remove this folder id from any sets that referenced it.
+    await this.mongo.sets.updateMany(
+        { folderIds: folder.id },
+        { $pull: { folderIds: folder.id } }
+    );
+
+    await this.mongo.folders.deleteOne(filter);
+    return folder;
+  }
+
+  private async populateFolder(doc: FolderDoc): Promise<Folder> {
+    const [author, sets, subfolders] = await Promise.all([
+      this.mongo.users.findOne({ _id: doc.authorId }),
+      doc.setIds.length > 0
+        ? this.mongo.sets.find({ _id: { $in: doc.setIds } }).toArray()
+        : Promise.resolve([] as SetDoc[]),
+      this.mongo.folders.find({ parentFolderId: doc._id }).toArray()
+    ]);
+
+    return {
+      id: doc._id,
+      parentFolderId: doc.parentFolderId,
+      authorId: doc.authorId,
+      name: doc.name,
+      description: doc.description,
+      color: doc.color,
+      private: doc.private,
+      setIds: doc.setIds,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+      author: author ? authorBasic(author) : undefined as never,
+      sets: sets.map(setDocToShallowSet),
+      subfolders: subfolders.map(folderDocToShallowFolder)
+    };
   }
 }

@@ -9,7 +9,6 @@ COPY package*.json .
 RUN npm install --legacy-peer-deps
 
 COPY . .
-RUN npm run generate
 RUN npm run build
 
 FROM node:20-slim

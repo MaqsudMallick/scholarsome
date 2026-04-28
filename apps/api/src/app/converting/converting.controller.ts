@@ -35,13 +35,12 @@ import { Request as ExpressRequest, Response as ExpressResponse, Express } from 
 import { ErrorResponse } from "../shared/response/error.response";
 import { QuizletExportParams } from "./param/quizletExportParams";
 import { CardsService } from "../cards/cards.service";
-import { ApiResponse, ApiResponseOptions } from "@scholarsome/shared";
+import { ApiResponse, ApiResponseOptions, Set } from "@scholarsome/shared";
 import { AuthenticatedGuard } from "../auth/guards/authenticated.guard";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { SetSuccessResponse } from "../sets/response/success/set.success.response";
 import { ImportSetFromFileDto } from "./dto/importSetFromFile.dto";
 import * as crypto from "crypto";
-import { Set } from "@prisma/client";
 import { ConvertingService } from "./converting.service";
 import { ThrottlerGuard } from "@nestjs/throttler";
 import { ImportSetFromQuizletDto } from "./dto/importSetFromQuizlet.dto";
@@ -265,7 +264,7 @@ export class ConvertingController {
     if (!cards) throw new BadRequestException("The set is not correctly formatted");
 
     const set = await this.setsService.createSet({
-      author: { connect: { email: author.email } },
+      authorId: author.id,
       title: body.title,
       description: body.description,
       private: body.private
@@ -326,7 +325,7 @@ export class ConvertingController {
 
     await this.setsService.createSet({
       id: uuid,
-      author: { connect: { email: author.email } },
+      authorId: author.id,
       title: body.title,
       description: body.description,
       private: body.private === "true"
@@ -346,7 +345,7 @@ export class ConvertingController {
       if (!card) continue;
 
       await this.cardsService.createCardMedia({
-        card: { connect: { id: card.id } },
+        cardId: card.id,
         name: media
       });
     }
@@ -395,7 +394,7 @@ export class ConvertingController {
     if (!cards) throw new BadRequestException();
 
     const set = await this.setsService.createSet({
-      author: { connect: { email: author.email } },
+      authorId: author.id,
       title: body.title,
       description: body.description,
       private: body.private === "true"

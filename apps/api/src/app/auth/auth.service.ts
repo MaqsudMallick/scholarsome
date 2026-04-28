@@ -8,7 +8,6 @@ import { lastValueFrom } from "rxjs";
 import { RecaptchaResponse, User as UserWithSets } from "@scholarsome/shared";
 import { Request, Response } from "express";
 import * as jwt from "jsonwebtoken";
-import { User } from "@prisma/client";
 import { JwtPayload } from "jwt-decode";
 import * as crypto from "crypto";
 import { TokenStoreService } from "../providers/token-store/token-store.service";
@@ -96,7 +95,7 @@ export class AuthService {
   /**
    * Sets the response login cookies for the user
    */
-  setLoginCookies(res: Response, user: UserWithSets | User): void {
+  setLoginCookies(res: Response, user: { id: string; email: string; verified: boolean } | UserWithSets): void {
     res.cookie("verified", user.verified, { httpOnly: false });
 
     const sessionId = crypto.randomUUID();

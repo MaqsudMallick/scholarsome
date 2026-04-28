@@ -1,7 +1,14 @@
-import { Prisma } from "@prisma/client";
+import { CardMedia } from "./cardMedia";
+import { Set } from "./set";
 
-const cardWithRelations = Prisma.validator<Prisma.CardArgs>()({
-  include: { set: true, media: true }
-});
-
-export type Card = Prisma.CardGetPayload<typeof cardWithRelations>;
+export interface Card {
+  id: string;
+  setId: string;
+  index: number;
+  term: string;
+  definition: string;
+  createdAt: Date;
+  updatedAt: Date;
+  set: Set;
+  media: CardMedia[];
+}

@@ -1,37 +1,99 @@
 import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../providers/database/prisma/prisma.service";
-import { Prisma } from "@prisma/client";
-import { Set } from "@scholarsome/shared";
+import * as crypto from "crypto";
+import { Filter } from "mongodb";
+import { Set, UserBasic, Card, CardMedia, Folder } from "@scholarsome/shared";
 import { Request as ExpressRequest } from "express";
 import jwt_decode from "jwt-decode";
 import { UsersService } from "../users/users.service";
 import { StorageService } from "../providers/storage/storage.service";
+import { CardDoc, CardMediaDoc, FolderDoc, MongoService, SetDoc, UserDoc } from "../providers/database/mongo.service";
+
+export interface SetUniqueWhere {
+  id?: string;
+}
+
+export interface SetCreateData {
+  id?: string;
+  authorId: string;
+  title: string;
+  description?: string | null;
+  private: boolean;
+  folderIds?: string[];
+}
+
+export interface SetUpdateData {
+  title?: string;
+  description?: string | null;
+  private?: boolean;
+  folderIds?: string[];
+}
+
+function authorBasic(doc: UserDoc | null): UserBasic | (never) {
+  if (!doc) return undefined as never;
+  return {
+    id: doc._id,
+    username: doc.username,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt
+  };
+}
+
+function cardDocToCard(doc: CardDoc, mediaDocs: CardMediaDoc[]): Card {
+  return {
+    id: doc._id,
+    setId: doc.setId,
+    index: doc.index,
+    term: doc.term,
+    definition: doc.definition,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    set: undefined as never,
+    media: mediaDocs.map<CardMedia>((m) => ({
+      id: m._id,
+      cardId: m.cardId,
+      name: m.name,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
+      card: undefined as never
+    }))
+  };
+}
+
+function folderDocToShallowFolder(doc: FolderDoc): Folder {
+  return {
+    id: doc._id,
+    parentFolderId: doc.parentFolderId,
+    authorId: doc.authorId,
+    name: doc.name,
+    description: doc.description,
+    color: doc.color,
+    private: doc.private,
+    setIds: doc.setIds,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    author: undefined as never,
+    sets: [],
+    subfolders: []
+  };
+}
+
+function uniqueFilter(where: SetUniqueWhere): Filter<SetDoc> {
+  if (where.id) return { _id: where.id };
+  throw new Error("SetUniqueWhere requires id");
+}
 
 @Injectable()
 export class SetsService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly mongo: MongoService,
     private readonly usersService: UsersService,
     private readonly storageService: StorageService
   ) {}
 
-  /**
-   * Removes set media files from S3 or local storage
-   *
-   * @param setId ID of the set to delete media from
-   */
   async deleteSetMediaFiles(setId: string): Promise<void> {
     return await this.storageService.getInstance().deleteDirectoryFiles("media/sets/" + setId);
   }
 
-  /**
-   * Verifies whether a set belongs to a user given their access token cookie
-   *
-   * @param req Request object of the user
-   * @param setId ID of the set to check against
-   *
-   * @returns Whether the set belongs to the user
-   */
   public async verifySetOwnership(req: ExpressRequest, setId: string): Promise<boolean> {
     let accessToken: { id: string; email: string; };
 
@@ -41,228 +103,156 @@ export class SetsService {
       return false;
     }
 
-    const user = await this.usersService.user({
-      id: accessToken.id
-    });
-
-    const set = await this.set({
-      id: setId
-    });
+    const user = await this.usersService.user({ id: accessToken.id });
+    const set = await this.set({ id: setId });
 
     if (!set || !user) return false;
-
     return set.author.id === user.id;
   }
 
-  /**
-   * Shifts the index of all cards in a set with an index greater than or equal to startIndex a specified amount
-   *
-   * @param setId ID of the set
-   * @param startIndex The index to start the shift at
-   * @param shiftAmount The amount to shift each index
-   *
-   * @returns Void
-   */
   public async shiftCardIndices(
       setId: string,
       startIndex: number,
       shiftAmount: number
   ): Promise<void> {
-    const cardsToUpdate = await this.prisma.card.findMany({
-      where: {
-        index: { gte: startIndex },
-        setId: setId
-      }
-    });
-
-    const updates = cardsToUpdate.map((card) => {
-      return this.prisma.card.update({
-        where: { id: card.id },
-        data: { index: card.index + shiftAmount }
-      });
-    });
-
-    await Promise.all(updates);
+    await this.mongo.cards.updateMany(
+        { setId, index: { $gte: startIndex } },
+        { $inc: { index: shiftAmount }, $set: { updatedAt: new Date() } }
+    );
   }
 
-  /**
-   * Queries the database for every public set's ID and when they were last modified
-   * Used for sitemap generation
-   *
-   * @returns Array of all set IDs and when they were last updated
-   */
   async getSitemapSetInfo(): Promise<{ id: string, updatedAt: Date }[]> {
-    return this.prisma.set.findMany({
-      where: {
-        private: false
-      },
-      select: {
-        id: true,
-        updatedAt: true
-      }
-    });
+    const docs = await this.mongo.sets
+        .find({ private: false }, { projection: { _id: 1, updatedAt: 1 } })
+        .toArray();
+    return docs.map((d) => ({ id: d._id, updatedAt: d.updatedAt }));
   }
 
-  /**
-   * Queries the database for a unique set
-   *
-   * @param setWhereUniqueInput Prisma `SetWhereUniqueInput` selector
-   *
-   * @returns Queried `Set` object
-   */
-  async set(
-      setWhereUniqueInput: Prisma.SetWhereUniqueInput
-  ): Promise<Set | null> {
-    return this.prisma.set.findUnique({
-      where: setWhereUniqueInput,
-      include: {
-        cards: true,
-        folders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
-      }
-    });
+  async set(where: SetUniqueWhere): Promise<Set | null> {
+    const doc = await this.mongo.sets.findOne(uniqueFilter(where));
+    if (!doc) return null;
+    return this.populateSet(doc);
   }
 
-  /**
-   * Queries the database for multiple sets
-   *
-   * @param params.skip Optional, Prisma skip selector
-   * @param params.take Optional, Prisma take selector
-   * @param params.cursor Optional, Prisma cursor selector
-   * @param params.where Optional, Prisma where selector
-   * @param params.orderBy Optional, Prisma orderBy selector
-   *
-   * @returns Array of queried `Set` objects
-   */
-  async sets(params: {
-    skip?: number;
-    take?: number;
-    cursor?: Prisma.SetWhereUniqueInput;
-    where?: Prisma.SetWhereInput;
-    orderBy?: Prisma.SetOrderByWithRelationInput;
-  }): Promise<Set[]> {
-    const { skip, take, cursor, where, orderBy } = params;
-    return this.prisma.set.findMany({
-      skip,
-      take,
-      cursor,
-      where,
-      orderBy,
-      include: {
-        cards: true,
-        folders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
-      }
-    });
+  async sets(params: { where?: { authorId?: string } } = {}): Promise<Set[]> {
+    const filter: Filter<SetDoc> = {};
+    if (params.where?.authorId) filter.authorId = params.where.authorId;
+
+    const docs = await this.mongo.sets.find(filter).toArray();
+    return Promise.all(docs.map((d) => this.populateSet(d)));
   }
 
-  /**
-   * Creates a set in the database
-   *
-   * @param data Prisma `SetCreateInput` selector
-   *
-   * @returns Created `Set` object
-   */
-  async createSet(data: Prisma.SetCreateInput): Promise<Set> {
-    return this.prisma.set.create({
-      data,
-      include: {
-        cards: true,
-        folders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
-      }
-    });
+  async createSet(data: SetCreateData): Promise<Set> {
+    const now = new Date();
+    const doc: SetDoc = {
+      _id: data.id ?? crypto.randomUUID(),
+      authorId: data.authorId,
+      title: data.title,
+      description: data.description ?? null,
+      private: data.private,
+      folderIds: data.folderIds ?? [],
+      createdAt: now,
+      updatedAt: now
+    };
+    await this.mongo.sets.insertOne(doc);
+
+    if (doc.folderIds.length > 0) {
+      await this.mongo.folders.updateMany(
+          { _id: { $in: doc.folderIds } },
+          { $addToSet: { setIds: doc._id } }
+      );
+    }
+
+    return this.populateSet(doc);
   }
 
-  /**
-   * Updates a set in the database
-   *
-   * @param params.where Prisma where selector
-   * @param params.data Prisma data selector
-   *
-   * @returns Updated `Set` object
-   */
-  async updateSet(params: {
-    where: Prisma.SetWhereUniqueInput;
-    data: Prisma.SetUpdateInput;
-  }): Promise<Set> {
-    const { where, data } = params;
-    return this.prisma.set.update({
-      data,
-      where,
-      include: {
-        cards: true,
-        folders: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        }
+  async updateSet(params: { where: SetUniqueWhere; data: SetUpdateData }): Promise<Set> {
+    const filter = uniqueFilter(params.where);
+    const current = await this.mongo.sets.findOne(filter);
+    if (!current) throw new Error("Set not found");
+
+    const update: Partial<SetDoc> = { updatedAt: new Date() };
+    if (params.data.title !== undefined) update.title = params.data.title;
+    if (params.data.description !== undefined) update.description = params.data.description;
+    if (params.data.private !== undefined) update.private = params.data.private;
+    if (params.data.folderIds !== undefined) update.folderIds = params.data.folderIds;
+
+    await this.mongo.sets.updateOne(filter, { $set: update });
+
+    if (params.data.folderIds !== undefined) {
+      const oldFolderIds = current.folderIds;
+      const newFolderIds = params.data.folderIds;
+      const added = newFolderIds.filter((id) => !oldFolderIds.includes(id));
+      const removed = oldFolderIds.filter((id) => !newFolderIds.includes(id));
+
+      if (added.length > 0) {
+        await this.mongo.folders.updateMany(
+            { _id: { $in: added } },
+            { $addToSet: { setIds: current._id } }
+        );
       }
-    });
+      if (removed.length > 0) {
+        await this.mongo.folders.updateMany(
+            { _id: { $in: removed } },
+            { $pull: { setIds: current._id } }
+        );
+      }
+    }
+
+    const updated = await this.mongo.sets.findOne(filter);
+    if (!updated) throw new Error("Set not found after update");
+    return this.populateSet(updated);
   }
 
-  /**
-   * Deletes a set from the database
-   *
-   * @param where Prisma `SetWhereUniqueInput` selector
-   *
-   * @returns `Set` object that was deleted
-   */
-  async deleteSet(where: Prisma.SetWhereUniqueInput): Promise<Set> {
-    // Standalone MongoDB has no transactions, so we can't rely on Prisma's
-    // cascade-delete (it wraps cascades in a transaction). Use raw MongoDB
-    // commands to walk the graph manually: CardMedia -> Card -> Set.
-    const set = await this.prisma.set.findUnique({
-      where,
-      include: {
-        cards: true,
-        folders: true,
-        author: true
-      }
-    });
+  async deleteSet(where: SetUniqueWhere): Promise<Set> {
+    const set = await this.set(where);
     if (!set) throw new Error("Set not found");
 
     const cardIds = set.cards.map((c) => c.id);
     if (cardIds.length > 0) {
-      await this.prisma.$runCommandRaw({
-        delete: "CardMedia",
-        deletes: [{ q: { cardId: { $in: cardIds } }, limit: 0 }]
-      });
-      await this.prisma.$runCommandRaw({
-        delete: "Card",
-        deletes: [{ q: { setId: set.id }, limit: 0 }]
-      });
+      await this.mongo.cardMedia.deleteMany({ cardId: { $in: cardIds } });
+      await this.mongo.cards.deleteMany({ setId: set.id });
     }
 
-    await this.prisma.$runCommandRaw({
-      delete: "Set",
-      deletes: [{ q: { _id: set.id }, limit: 1 }]
-    });
+    if (set.folderIds.length > 0) {
+      await this.mongo.folders.updateMany(
+          { _id: { $in: set.folderIds } },
+          { $pull: { setIds: set.id } }
+      );
+    }
+
+    await this.mongo.sets.deleteOne({ _id: set.id });
     return set;
+  }
+
+  private async populateSet(doc: SetDoc): Promise<Set> {
+    const [author, cardDocs, folderDocs] = await Promise.all([
+      this.mongo.users.findOne({ _id: doc.authorId }),
+      this.mongo.cards.find({ setId: doc._id }).sort({ index: 1 }).toArray(),
+      doc.folderIds.length > 0
+        ? this.mongo.folders.find({ _id: { $in: doc.folderIds } }).toArray()
+        : Promise.resolve([] as FolderDoc[])
+    ]);
+
+    const cardIds = cardDocs.map((c) => c._id);
+    const mediaDocs = cardIds.length > 0
+      ? await this.mongo.cardMedia.find({ cardId: { $in: cardIds } }).toArray()
+      : [];
+
+    return {
+      id: doc._id,
+      authorId: doc.authorId,
+      title: doc.title,
+      description: doc.description,
+      private: doc.private,
+      folderIds: doc.folderIds,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+      author: authorBasic(author),
+      cards: cardDocs.map((c) =>
+        cardDocToCard(c, mediaDocs.filter((m) => m.cardId === c._id))
+      ),
+      folders: folderDocs.map(folderDocToShallowFolder)
+    };
   }
 }

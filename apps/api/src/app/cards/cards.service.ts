@@ -1,31 +1,89 @@
 import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../providers/database/prisma/prisma.service";
-import { Prisma, Card as PrismaCard, CardMedia as PrismaCardMedia } from "@prisma/client";
-import { Card, CardMedia } from "@scholarsome/shared";
-import * as sharp from "sharp";
 import * as crypto from "crypto";
+import * as sharp from "sharp";
+import { Filter } from "mongodb";
+import { Card, CardMedia } from "@scholarsome/shared";
+import { CardDoc, CardMediaDoc, MongoService, SetDoc } from "../providers/database/mongo.service";
 import { StorageService } from "../providers/storage/storage.service";
+
+export interface CardUniqueWhere {
+  id?: string;
+}
+
+export interface CardCreateData {
+  id?: string;
+  setId: string;
+  index: number;
+  term: string;
+  definition: string;
+}
+
+export interface CardUpdateData {
+  index?: number;
+  term?: string;
+  definition?: string;
+}
+
+export interface CardMediaUniqueWhere {
+  id?: string;
+}
+
+export interface CardMediaCreateData {
+  cardId: string;
+  name: string;
+}
+
+export interface CardMediaUpdateData {
+  name?: string;
+}
+
+function setDocAsSetWithoutCards(doc: SetDoc) {
+  return {
+    id: doc._id,
+    authorId: doc.authorId,
+    title: doc.title,
+    description: doc.description,
+    private: doc.private,
+    folderIds: doc.folderIds,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    author: undefined as never,
+    cards: [],
+    folders: []
+  };
+}
+
+function cardMediaDocToCardMedia(doc: CardMediaDoc): CardMedia {
+  return {
+    id: doc._id,
+    cardId: doc.cardId,
+    name: doc.name,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    card: undefined as never
+  };
+}
+
+function uniqueCardFilter(where: CardUniqueWhere): Filter<CardDoc> {
+  if (where.id) return { _id: where.id };
+  throw new Error("CardUniqueWhere requires id");
+}
+
+function uniqueCardMediaFilter(where: CardMediaUniqueWhere): Filter<CardMediaDoc> {
+  if (where.id) return { _id: where.id };
+  throw new Error("CardMediaUniqueWhere requires id");
+}
 
 @Injectable()
 export class CardsService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly mongo: MongoService,
     private readonly storageService: StorageService
   ) {}
 
-  /**
-   * Scans a string for HTML tags that contain a src,
-   * and uploads them to the designated storage destination
-   *
-   * @param side The string to scan
-   * @param setId The ID of the set that the card is apart of
-   *
-   * @returns The string with updated src values
-   */
   async scanAndUploadMedia(side: string, setId: string): Promise<{ scanned: string; media: string[] } | false> {
     const matches = side.match(/<[^>]+src="([^">]+)"/g);
-
-    const media = [];
+    const media: string[] = [];
 
     if (matches) {
       let sources = Object.values(matches);
@@ -38,7 +96,6 @@ export class CardsService {
         if (split.length === 0 || split.length !== 2) continue;
 
         let decoded = Buffer.from(split[1], "base64");
-
         let extension = "." + source.match(/^data:[a-z]+\/([a-z]+);base64,/)[1];
 
         if (
@@ -56,9 +113,7 @@ export class CardsService {
         media.push(name);
 
         const fileName = setId + "/" + name;
-
-        await this.storageService.getInstance()
-            .putFile("media/sets/" + fileName, decoded);
+        await this.storageService.getInstance().putFile("media/sets/" + fileName, decoded);
 
         side = side.replace(source, "/api/sets/" + setId + "/media/" + name);
       }
@@ -72,280 +127,143 @@ export class CardsService {
         .deleteFile("media/sets/" + setId + "/" + fileName);
   }
 
-  /**
-   * Queries the database for a unique card
-   *
-   * @param cardWhereUniqueInput Prisma `CardWhereUniqueInput` selector object
-   *
-   * @returns Queried `Card` object
-   */
-  async card(
-      cardWhereUniqueInput: Prisma.CardWhereUniqueInput
-  ): Promise<Card | null> {
-    return this.prisma.card.findUnique({
-      where: cardWhereUniqueInput,
-      include: { set: true, media: true }
-    });
+  async card(where: CardUniqueWhere): Promise<Card | null> {
+    const doc = await this.mongo.cards.findOne(uniqueCardFilter(where));
+    if (!doc) return null;
+    return this.populateCard(doc);
   }
 
-  /**
-   * Queries the database for multiple cards
-   *
-   * @param params.skip Optional, Prisma skip selector
-   * @param params.take Optional, Prisma take selector
-   * @param params.cursor Optional, Prisma cursor selector
-   * @param params.where Optional, Prisma where selector
-   * @param params.orderBy Optional, Prisma orderBy selector
-   *
-   * @returns Array of queried `Card` objects
-   */
-  async cards(params: {
-    skip?: number;
-    take?: number;
-    cursor?: Prisma.CardWhereUniqueInput;
-    where?: Prisma.CardWhereInput;
-    orderBy?: Prisma.CardOrderByWithRelationInput;
-  }): Promise<Card[]> {
-    const { skip, take, cursor, where, orderBy } = params;
-    return this.prisma.card.findMany({
-      skip,
-      take,
-      cursor,
-      where,
-      orderBy,
-      include: {
-        set: true,
-        media: true
-      }
-    });
+  async cards(params: { where?: { setId?: string } } = {}): Promise<Card[]> {
+    const filter: Filter<CardDoc> = {};
+    if (params.where?.setId) filter.setId = params.where.setId;
+
+    const docs = await this.mongo.cards.find(filter).sort({ index: 1 }).toArray();
+    return Promise.all(docs.map((d) => this.populateCard(d)));
   }
 
-  /**
-   * Creates a card in the database
-   *
-   * @param data Prisma `CardCreateInput` selector
-   *
-   * @returns Created `Card` object
-   */
-  async createCard(data: Prisma.CardCreateInput): Promise<PrismaCard> {
-    return this.prisma.card.create({
-      data
-    });
+  async createCard(data: CardCreateData): Promise<CardDoc> {
+    const now = new Date();
+    const doc: CardDoc = {
+      _id: data.id ?? crypto.randomUUID(),
+      setId: data.setId,
+      index: data.index,
+      term: data.term,
+      definition: data.definition,
+      createdAt: now,
+      updatedAt: now
+    };
+    await this.mongo.cards.insertOne(doc);
+    return doc;
   }
 
-  /**
-   * Updates a card in the database
-   *
-   * @param params.where Prisma where selector
-   * @param params.data Prisma data selector
-   *
-   * @returns Updated `Card` object
-   */
-  async updateCard(params: {
-    where: Prisma.CardWhereUniqueInput;
-    data: Prisma.CardUpdateInput;
-  }): Promise<PrismaCard> {
-    const { where, data } = params;
-    return this.prisma.card.update({
-      data,
-      where
-    });
+  async updateCard(params: { where: CardUniqueWhere; data: CardUpdateData }): Promise<CardDoc> {
+    const filter = uniqueCardFilter(params.where);
+    const result = await this.mongo.cards.findOneAndUpdate(
+        filter,
+        { $set: { ...params.data, updatedAt: new Date() } },
+        { returnDocument: "after" }
+    );
+    if (!result) throw new Error("Card not found");
+    return result;
   }
 
-
-  /**
-   * Deletes a card from the database
-   *
-   * @param where Prisma CardWhereUniqueInput selector
-   *
-   * @returns `Card` object that was deleted
-   */
-  async deleteCard(where: Prisma.CardWhereUniqueInput): Promise<PrismaCard> {
-    const card = await this.prisma.card.findUnique({
-      where,
-      include: { media: true }
-    });
+  async deleteCard(where: CardUniqueWhere): Promise<CardDoc> {
+    const filter = uniqueCardFilter(where);
+    const card = await this.mongo.cards.findOne(filter);
     if (!card) throw new Error("Card not found");
 
-    // Use raw MongoDB commands to avoid Prisma's transaction wrapper, which
-    // requires a replica set on MongoDB.
-    await this.prisma.$runCommandRaw({
-      delete: "CardMedia",
-      deletes: [{ q: { cardId: card.id }, limit: 0 }]
-    });
-    await this.prisma.$runCommandRaw({
-      delete: "Card",
-      deletes: [{ q: { _id: card.id }, limit: 1 }]
-    });
-
-    return card as unknown as PrismaCard;
+    await this.mongo.cardMedia.deleteMany({ cardId: card._id });
+    await this.mongo.cards.deleteOne(filter);
+    return card;
   }
 
-  // Standalone MongoDB has no transactions. Prisma wraps cascade deletes (and
-  // some related-model writes) in an internal transaction, so we issue raw
-  // MongoDB commands via $runCommandRaw to bypass it entirely.
-
   async deleteCardsBySetId(setId: string): Promise<void> {
-    // CardMedia.cardId references Card._id; resolve the card ids first.
-    const cardIdsResult = (await this.prisma.$runCommandRaw({
-      find: "Card",
-      filter: { setId },
-      projection: { _id: 1 }
-    })) as unknown as { cursor: { firstBatch: Array<{ _id: string }> } };
+    const cards = await this.mongo.cards.find({ setId }, { projection: { _id: 1 } }).toArray();
+    if (cards.length === 0) return;
 
-    const cardIds = cardIdsResult.cursor.firstBatch.map((c) => c._id);
-
-    if (cardIds.length > 0) {
-      await this.prisma.$runCommandRaw({
-        delete: "CardMedia",
-        deletes: [{ q: { cardId: { $in: cardIds } }, limit: 0 }]
-      });
-      await this.prisma.$runCommandRaw({
-        delete: "Card",
-        deletes: [{ q: { setId }, limit: 0 }]
-      });
-    }
+    const cardIds = cards.map((c) => c._id);
+    await this.mongo.cardMedia.deleteMany({ cardId: { $in: cardIds } });
+    await this.mongo.cards.deleteMany({ setId });
   }
 
   async createCardsForSet(setId: string, cards: Array<{ id?: string; index: number; term: string; definition: string }>): Promise<void> {
     if (cards.length === 0) return;
 
-    const now = new Date().toISOString();
-    const documents = cards.map((c) => ({
+    const now = new Date();
+    const docs: CardDoc[] = cards.map((c) => ({
       _id: c.id ?? crypto.randomUUID(),
       setId,
       index: c.index,
       term: c.term,
       definition: c.definition,
-      createdAt: { $date: now },
-      updatedAt: { $date: now }
+      createdAt: now,
+      updatedAt: now
     }));
 
-    await this.prisma.$runCommandRaw({
-      insert: "Card",
-      documents,
-      ordered: true
-    });
+    await this.mongo.cards.insertMany(docs);
   }
 
-  /**
-   * Queries the database for a unique cardMedia instance
-   *
-   * @param cardMediaWhereUniqueInput Prisma `CardMediaWhereUniqueInput` selector object
-   *
-   * @returns Queried `CardMedia` object
-   */
-  async cardMedia(
-      cardMediaWhereUniqueInput: Prisma.CardMediaWhereUniqueInput
-  ): Promise<CardMedia | null> {
-    return this.prisma.cardMedia.findUnique({
-      where: cardMediaWhereUniqueInput,
-      include: { card: true }
-    });
+  async cardMedia(where: CardMediaUniqueWhere): Promise<CardMedia | null> {
+    const doc = await this.mongo.cardMedia.findOne(uniqueCardMediaFilter(where));
+    if (!doc) return null;
+    return cardMediaDocToCardMedia(doc);
   }
 
+  async cardMedias(params: { where?: { cardId?: string } } = {}): Promise<CardMedia[]> {
+    const filter: Filter<CardMediaDoc> = {};
+    if (params.where?.cardId) filter.cardId = params.where.cardId;
 
-  /**
-   * Queries the database for multiple cardMedia instances
-   *
-   * @param params.skip Optional, Prisma skip selector
-   * @param params.take Optional, Prisma take selector
-   * @param params.cursor Optional, Prisma cursor selector
-   * @param params.where Optional, Prisma where selector
-   * @param params.orderBy Optional, Prisma orderBy selector
-   *
-   * @returns Array of queried `CardMedia` objects
-   */
-  async cardMedias(params: {
-    skip?: number;
-    take?: number;
-    cursor?: Prisma.CardMediaWhereUniqueInput;
-    where?: Prisma.CardMediaWhereInput;
-    orderBy?: Prisma.CardMediaOrderByWithRelationInput;
-  }): Promise<CardMedia[]> {
-    const { skip, take, cursor, where, orderBy } = params;
-    return this.prisma.cardMedia.findMany({
-      skip,
-      take,
-      cursor,
-      where,
-      orderBy,
-      include: {
-        card: true
-      }
-    });
+    const docs = await this.mongo.cardMedia.find(filter).toArray();
+    return docs.map(cardMediaDocToCardMedia);
   }
 
-  /**
-   * Creates a cardMedia instance in the database
-   *
-   * @param data Prisma `CardMediaCreateInput` selector
-   *
-   * @returns Created `CardMedia` object
-   */
-  async createCardMedia(data: Prisma.CardMediaCreateInput): Promise<PrismaCardMedia> {
-    // Use a raw insert to avoid Prisma's transaction wrapper around nested
-    // writes (the `card: { connect: ... }` form would otherwise need a
-    // replica set).
-    const cardId = data.card?.connect?.id as string | undefined;
-    if (!cardId) {
-      throw new Error("createCardMedia requires card.connect.id");
-    }
+  async createCardMedia(data: CardMediaCreateData): Promise<CardMediaDoc> {
+    const now = new Date();
+    const doc: CardMediaDoc = {
+      _id: crypto.randomUUID(),
+      cardId: data.cardId,
+      name: data.name,
+      createdAt: now,
+      updatedAt: now
+    };
+    await this.mongo.cardMedia.insertOne(doc);
+    return doc;
+  }
 
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
+  async updateCardMedia(params: { where: CardMediaUniqueWhere; data: CardMediaUpdateData }): Promise<CardMediaDoc> {
+    const filter = uniqueCardMediaFilter(params.where);
+    const result = await this.mongo.cardMedia.findOneAndUpdate(
+        filter,
+        { $set: { ...params.data, updatedAt: new Date() } },
+        { returnDocument: "after" }
+    );
+    if (!result) throw new Error("CardMedia not found");
+    return result;
+  }
 
-    await this.prisma.$runCommandRaw({
-      insert: "CardMedia",
-      documents: [{
-        _id: id,
-        cardId,
-        name: data.name as string,
-        createdAt: { $date: now },
-        updatedAt: { $date: now }
-      }],
-      ordered: true
-    });
+  async deleteCardMedia(where: CardMediaUniqueWhere): Promise<CardMediaDoc> {
+    const filter = uniqueCardMediaFilter(where);
+    const result = await this.mongo.cardMedia.findOneAndDelete(filter);
+    if (!result) throw new Error("CardMedia not found");
+    return result;
+  }
+
+  private async populateCard(doc: CardDoc): Promise<Card> {
+    const [setDoc, mediaDocs] = await Promise.all([
+      this.mongo.sets.findOne({ _id: doc.setId }),
+      this.mongo.cardMedia.find({ cardId: doc._id }).toArray()
+    ]);
 
     return {
-      id,
-      cardId,
-      name: data.name as string,
-      createdAt: new Date(now),
-      updatedAt: new Date(now)
+      id: doc._id,
+      setId: doc.setId,
+      index: doc.index,
+      term: doc.term,
+      definition: doc.definition,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+      set: setDoc ? setDocAsSetWithoutCards(setDoc) as unknown as Card["set"] : (undefined as never),
+      media: mediaDocs.map(cardMediaDocToCardMedia)
     };
-  }
-
-  /**
-   * Updates a cardMedia instance in the database
-   *
-   * @param params.where Prisma where selector
-   * @param params.data Prisma data selector
-   *
-   * @returns Updated `CardMedia` object
-   */
-  async updateCardMedia(params: {
-    where: Prisma.CardMediaWhereUniqueInput;
-    data: Prisma.CardMediaUpdateInput;
-  }): Promise<PrismaCardMedia> {
-    const { where, data } = params;
-    return this.prisma.cardMedia.update({
-      data,
-      where
-    });
-  }
-
-
-  /**
-   * Deletes a cardMedia instance from the database
-   *
-   * @param where Prisma CardMediaWhereUniqueInput selector
-   *
-   * @returns `CardMedia` object that was deleted
-   */
-  async deleteCardMedia(where: Prisma.CardMediaWhereUniqueInput): Promise<PrismaCardMedia> {
-    return this.prisma.cardMedia.delete({
-      where
-    });
   }
 }

@@ -1,7 +1,10 @@
-import { Prisma } from "@prisma/client";
+import { Card } from "./card";
 
-const cardMediaWithRelations = Prisma.validator<Prisma.CardMediaArgs>()({
-  include: { card: true }
-});
-
-export type CardMedia = Prisma.CardMediaGetPayload<typeof cardMediaWithRelations>;
+export interface CardMedia {
+  id: string;
+  cardId: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  card: Card;
+}

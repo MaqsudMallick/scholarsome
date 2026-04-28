@@ -15,10 +15,10 @@ import { AuthenticatedGuard } from "../auth/guards/authenticated.guard";
 import { SetsService } from "./sets.service";
 import { UsersService } from "../users/users.service";
 import { Request as ExpressRequest } from "express";
-import { ApiResponse, ApiResponseOptions } from "@scholarsome/shared";
-import { Set, CardMedia, Prisma } from "@prisma/client";
+import { ApiResponse, ApiResponseOptions, Set, CardMedia } from "@scholarsome/shared";
 import * as crypto from "crypto";
 import { CardsService } from "../cards/cards.service";
+import { SetCreateData, SetUpdateData } from "./sets.service";
 import {
   ApiCreatedResponse,
   ApiNotFoundResponse,
@@ -244,17 +244,14 @@ export class SetsController {
       }
     }
 
-    const createData: Prisma.SetCreateInput = {
+    const createData: SetCreateData = {
       id: uuid,
-      author: { connect: { email: author.email } },
+      authorId: author.id,
       title: body.title,
       description: body.description,
-      private: body.private
+      private: body.private,
+      folderIds: body.folders ?? []
     };
-
-    if (body.folders && body.folders.length > 0) {
-      createData.folders = { connect: body.folders.map((f) => ({ id: f })) };
-    }
 
     await this.setsService.createSet(createData);
 
@@ -272,11 +269,7 @@ export class SetsController {
       if (!card) continue;
 
       await this.cardsService.createCardMedia({
-        card: {
-          connect: {
-            id: card.id
-          }
-        },
+        cardId: card.id,
         name: file
       });
     }
@@ -424,17 +417,14 @@ export class SetsController {
       await this.cardsService.createCardsForSet(set.id, body.cards);
     }
 
-    const updateData: Prisma.SetUpdateInput = {
+    const updateData: SetUpdateData = {
       title: body.title,
       description: body.description,
       private: body.private
     };
 
-    if (newFolderIDs.length > 0 || removedFolderIDs.length > 0) {
-      updateData.folders = {
-        connect: newFolderIDs.map((s) => ({ id: s })),
-        disconnect: removedFolderIDs.map((s) => ({ id: s }))
-      };
+    if (body.folders) {
+      updateData.folderIds = body.folders;
     }
 
     const update = await this.setsService.updateSet({
@@ -448,11 +438,7 @@ export class SetsController {
       if (!card) continue;
 
       await this.cardsService.createCardMedia({
-        card: {
-          connect: {
-            id: card.id
-          }
-        },
+        cardId: card.id,
         name: file
       });
     }

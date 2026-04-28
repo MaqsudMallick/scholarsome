@@ -1,7 +1,6 @@
 import { Component, ElementRef, OnInit, ViewChild } from "@angular/core";
 import { FoldersService } from "../shared/http/folders.service";
-import { Folder } from "@scholarsome/shared";
-import { Set, Folder as PrismaFolder } from "@prisma/client";
+import { Folder, Set, Folder as PrismaFolder } from "@scholarsome/shared";
 import { ActivatedRoute, Router } from "@angular/router";
 import { faFolder, faClone, faFolderTree, faPencil, faCancel, faSave, faArrowUp, faTrashCan, faUser } from "@fortawesome/free-solid-svg-icons";
 import { UsersService } from "../shared/http/users.service";

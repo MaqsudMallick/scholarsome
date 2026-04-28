@@ -272,30 +272,13 @@ export class FoldersController {
     return {
       status: ApiResponseOptions.Success,
       data: await this.foldersService.createFolder({
-        author: {
-          connect: {
-            email: author.email
-          }
-        },
+        authorId: author.id,
         name: body.name,
         description: body.description,
         color: body.color,
         private: body.private,
-        parentFolder: body.parentFolderId ? {
-          connect: {
-            id: body.parentFolderId
-          }
-        } : undefined,
-        subfolders: {
-          connect: body.subfolders ? body.subfolders.map((f) => {
-            return { id: f };
-          }): undefined
-        },
-        sets: {
-          connect: body.sets ? body.sets.map((s) => {
-            return { id: s };
-          }) : undefined
-        }
+        parentFolderId: body.parentFolderId ?? null,
+        setIds: body.sets ?? []
       })
     };
   }
@@ -420,26 +403,9 @@ export class FoldersController {
           description: body.description,
           color: body.color,
           private: body.private,
-          parentFolder: {
-            connect: body.parentFolderId ? { id: body.parentFolderId }: undefined,
-            disconnect: folder.parentFolderId && !body.parentFolderId ? true : undefined
-          },
-          subfolders: {
-            connect: newSubfolderIDs.map((s) => {
-              return { id: s };
-            }),
-            disconnect: removedSubfolderIDs.map((s) => {
-              return { id: s };
-            })
-          },
-          sets: {
-            connect: newSetIDs.map((s) => {
-              return { id: s };
-            }),
-            disconnect: removedSetIDs.map((s) => {
-              return { id: s };
-            })
-          }
+          parentFolderId: body.parentFolderId ?? (folder.parentFolderId ? null : undefined),
+          subfolderIds: body.subfolders ?? undefined,
+          setIds: body.sets ?? undefined
         }
       })
     };

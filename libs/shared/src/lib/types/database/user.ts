@@ -1,10 +1,21 @@
-import { Prisma } from "@prisma/client";
+import { Set } from "./set";
+import { Folder } from "./folder";
 
-const userWithRelations = Prisma.validator<Prisma.UserArgs>()({
-  include: {
-    sets: true,
-    folders: true
-  }
-});
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  password: string;
+  verified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  sets: Set[];
+  folders: Folder[];
+}
 
-export type User = Prisma.UserGetPayload<typeof userWithRelations>;
+export interface UserBasic {
+  id: string;
+  username: string;
+  createdAt: Date;
+  updatedAt: Date;
+}

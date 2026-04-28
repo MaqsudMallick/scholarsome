@@ -1,119 +1,157 @@
 import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../providers/database/prisma/prisma.service";
-import { Prisma, User as PrismaUser } from "@prisma/client";
+import * as crypto from "crypto";
+import { Filter } from "mongodb";
 import { User } from "@scholarsome/shared";
+import { MongoService, SetDoc, FolderDoc, UserDoc } from "../providers/database/mongo.service";
+
+export interface UserUniqueWhere {
+  id?: string;
+  email?: string;
+  username?: string;
+}
+
+export interface UserCreateData {
+  id?: string;
+  username: string;
+  email: string;
+  password: string;
+  verified?: boolean;
+}
+
+export interface UserUpdateData {
+  username?: string;
+  email?: string;
+  password?: string;
+  verified?: boolean;
+}
+
+function userDocToUser(doc: UserDoc, sets: SetDoc[], folders: FolderDoc[]): User {
+  return {
+    id: doc._id,
+    username: doc.username,
+    email: doc.email,
+    password: doc.password,
+    verified: doc.verified,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    // Sets and folders carry minimal shape — controllers only read scalar
+    // fields like .private. Relations on these are not populated here.
+    sets: sets.map((s) => ({
+      id: s._id,
+      authorId: s.authorId,
+      title: s.title,
+      description: s.description,
+      private: s.private,
+      folderIds: s.folderIds,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      author: undefined as never,
+      cards: [],
+      folders: []
+    })),
+    folders: folders.map((f) => ({
+      id: f._id,
+      parentFolderId: f.parentFolderId,
+      authorId: f.authorId,
+      name: f.name,
+      description: f.description,
+      color: f.color,
+      private: f.private,
+      setIds: f.setIds,
+      createdAt: f.createdAt,
+      updatedAt: f.updatedAt,
+      author: undefined as never,
+      sets: [],
+      subfolders: []
+    }))
+  };
+}
+
+function uniqueFilter(where: UserUniqueWhere): Filter<UserDoc> {
+  if (where.id) return { _id: where.id };
+  if (where.email) return { email: where.email };
+  if (where.username) return { username: where.username };
+  throw new Error("UserUniqueWhere must include id, email, or username");
+}
 
 @Injectable()
 export class UsersService {
-  constructor(
-    private readonly prisma: PrismaService
-  ) {}
+  constructor(private readonly mongo: MongoService) {}
 
-  /**
-   * Queries the database for every user ID and when they were last modified
-   * Used for sitemap generation
-   *
-   * @returns Array of all user IDs and when they were last updated
-   */
   async getSitemapUserInfo(): Promise<{ id: string, updatedAt: Date }[]> {
-    return this.prisma.user.findMany({
-      select: {
-        id: true,
-        updatedAt: true
-      }
-    });
+    const docs = await this.mongo.users
+        .find({}, { projection: { _id: 1, updatedAt: 1 } })
+        .toArray();
+    return docs.map((d) => ({ id: d._id, updatedAt: d.updatedAt }));
   }
 
-  /**
-   * Queries the database for a unique user
-   *
-   * @param userWhereUniqueInput Prisma `UserWhereUniqueInput` selector
-   *
-   * @returns Queried `User` object
-   */
-  async user(
-      userWhereUniqueInput: Prisma.UserWhereUniqueInput
-  ): Promise<User | null> {
-    return this.prisma.user.findUnique({
-      where: userWhereUniqueInput,
-      include: { sets: true, folders: true }
-    });
+  async user(where: UserUniqueWhere): Promise<User | null> {
+    const doc = await this.mongo.users.findOne(uniqueFilter(where));
+    if (!doc) return null;
+
+    const [sets, folders] = await Promise.all([
+      this.mongo.sets.find({ authorId: doc._id }).toArray(),
+      this.mongo.folders.find({ authorId: doc._id }).toArray()
+    ]);
+
+    return userDocToUser(doc, sets, folders);
   }
 
-  /**
-   * Queries the database for multiple users
-   *
-   * @param params.skip Optional, Prisma skip selector
-   * @param params.take Optional, Prisma take selector
-   * @param params.cursor Optional, Prisma cursor selector
-   * @param params.where Optional, Prisma where selector
-   * @param params.orderBy Optional, Prisma orderBy selector
-   *
-   * @returns Array of queried `User` objects
-   */
-  async users(params: {
-    skip?: number;
-    take?: number;
-    cursor?: Prisma.UserWhereUniqueInput;
-    where?: Prisma.UserWhereInput;
-    orderBy?: Prisma.UserOrderByWithRelationInput;
-  }): Promise<User[]> {
-    const { skip, take, cursor, where, orderBy } = params;
-    return this.prisma.user.findMany({
-      skip,
-      take,
-      cursor,
-      where,
-      orderBy,
-      include: {
-        sets: true, folders: true
-      }
-    });
+  async users(): Promise<User[]> {
+    const docs = await this.mongo.users.find({}).toArray();
+    const ids = docs.map((d) => d._id);
+
+    const [sets, folders] = await Promise.all([
+      this.mongo.sets.find({ authorId: { $in: ids } }).toArray(),
+      this.mongo.folders.find({ authorId: { $in: ids } }).toArray()
+    ]);
+
+    return docs.map((d) =>
+      userDocToUser(
+          d,
+          sets.filter((s) => s.authorId === d._id),
+          folders.filter((f) => f.authorId === d._id)
+      )
+    );
   }
 
-  /**
-   * Creates a user in the database
-   *
-   * @param data Prisma `UserCreateInput` selector
-   *
-   * @returns Created `User` object
-   */
-  async createUser(data: Prisma.UserCreateInput): Promise<PrismaUser> {
-    return this.prisma.user.create({
-      data
-    });
+  async createUser(data: UserCreateData): Promise<User> {
+    const now = new Date();
+    const doc: UserDoc = {
+      _id: data.id ?? crypto.randomUUID(),
+      username: data.username,
+      email: data.email,
+      password: data.password,
+      verified: data.verified ?? false,
+      createdAt: now,
+      updatedAt: now
+    };
+    await this.mongo.users.insertOne(doc);
+    return userDocToUser(doc, [], []);
   }
 
-  /**
-   * Updates a user in the database
-   *
-   * @param params.where Prisma where selector
-   * @param params.data Prisma data selector
-   *
-   * @returns Updated `User` object
-   */
   async updateUser(params: {
-    where: Prisma.UserWhereUniqueInput;
-    data: Prisma.UserUpdateInput;
-  }): Promise<PrismaUser> {
-    const { where, data } = params;
-    return this.prisma.user.update({
-      data,
-      where
-    });
+    where: UserUniqueWhere;
+    data: UserUpdateData;
+  }): Promise<User> {
+    const result = await this.mongo.users.findOneAndUpdate(
+        uniqueFilter(params.where),
+        { $set: { ...params.data, updatedAt: new Date() } },
+        { returnDocument: "after" }
+    );
+    if (!result) throw new Error("User not found");
+
+    const [sets, folders] = await Promise.all([
+      this.mongo.sets.find({ authorId: result._id }).toArray(),
+      this.mongo.folders.find({ authorId: result._id }).toArray()
+    ]);
+
+    return userDocToUser(result, sets, folders);
   }
 
-
-  /**
-   * Deletes a user from the database
-   *
-   * @param where Prisma `UserWhereUniqueInput` selector
-   *
-   * @returns `User` object that was deleted
-   */
-  async deleteUser(where: Prisma.UserWhereUniqueInput): Promise<PrismaUser> {
-    return this.prisma.user.delete({
-      where
-    });
+  async deleteUser(where: UserUniqueWhere): Promise<UserDoc> {
+    const result = await this.mongo.users.findOneAndDelete(uniqueFilter(where));
+    if (!result) throw new Error("User not found");
+    return result;
   }
 }

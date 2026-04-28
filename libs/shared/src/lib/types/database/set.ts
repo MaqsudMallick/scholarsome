@@ -1,14 +1,17 @@
-import { Prisma } from "@prisma/client";
+import { Card } from "./card";
+import { Folder } from "./folder";
+import { UserBasic } from "./user";
 
-const setWithRelations = Prisma.validator<Prisma.SetArgs>()({
-  include: { cards: true, folders: true, author: {
-    select: {
-      id: true,
-      username: true,
-      createdAt: true,
-      updatedAt: true
-    }
-  } }
-});
-
-export type Set = Prisma.SetGetPayload<typeof setWithRelations>;
+export interface Set {
+  id: string;
+  authorId: string;
+  title: string;
+  description: string | null;
+  private: boolean;
+  folderIds: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  author: UserBasic;
+  cards: Card[];
+  folders: Folder[];
+}

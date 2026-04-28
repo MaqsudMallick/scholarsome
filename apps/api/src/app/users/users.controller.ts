@@ -1,8 +1,7 @@
 import { Controller, Get, NotFoundException, Param, Req, UnauthorizedException } from "@nestjs/common";
-import { ApiResponse, ApiResponseOptions } from "@scholarsome/shared";
+import { ApiResponse, ApiResponseOptions, User } from "@scholarsome/shared";
 import { UsersService } from "./users.service";
 import { Request as ExpressRequest } from "express";
-import { User } from "@prisma/client";
 import { ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags, ApiUnauthorizedResponse } from "@nestjs/swagger";
 import { UserIdParam } from "./param/userId.param";
 import { UserSuccessResponse } from "./response/success/user.success.response";

@@ -1,18 +1,18 @@
-import { Prisma } from "@prisma/client";
+import { Set } from "./set";
+import { UserBasic } from "./user";
 
-const folderWithRelations = Prisma.validator<Prisma.FolderArgs>()({
-  include: {
-    sets: true,
-    subfolders: true,
-    author: {
-      select: {
-        id: true,
-        username: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    }
-  }
-});
-
-export type Folder = Prisma.FolderGetPayload<typeof folderWithRelations>;
+export interface Folder {
+  id: string;
+  parentFolderId: string | null;
+  authorId: string;
+  name: string;
+  description: string | null;
+  color: string;
+  private: boolean;
+  setIds: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  author: UserBasic;
+  sets: Set[];
+  subfolders: Folder[];
+}

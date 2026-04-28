@@ -16,11 +16,10 @@ import { CardsService } from "./cards.service";
 import { UsersService } from "../users/users.service";
 import { AuthenticatedGuard } from "../auth/guards/authenticated.guard";
 import { SetsService } from "../sets/sets.service";
-import { ApiResponse, ApiResponseOptions } from "@scholarsome/shared";
+import { ApiResponse, ApiResponseOptions, Card } from "@scholarsome/shared";
 import { CreateCardGuard } from "./guards/create-card.guard";
 import { DeleteCardGuard } from "./guards/delete-card.guard";
 import { UpdateCardGuard } from "./guards/update-card.guard";
-import { Card } from "@prisma/client";
 import {
   ApiCreatedResponse,
   ApiNotFoundResponse,
@@ -163,19 +162,22 @@ export class CardsController {
       index: index,
       term: body.term,
       definition: body.definition,
-      set: { connect: { id: body.setId } }
+      setId: body.setId
     });
 
     for (const name of media) {
       await this.cardsService.createCardMedia({
-        card: { connect: { id: created.id } },
+        cardId: created._id,
         name
       });
     }
 
+    const populated = await this.cardsService.card({ id: created._id });
+    if (!populated) throw new NotFoundException({ status: "fail", message: "Card not found after creation" });
+
     return {
       status: ApiResponseOptions.Success,
-      data: created
+      data: populated
     };
   }
 
@@ -255,7 +257,7 @@ export class CardsController {
       }
     }
 
-    const updated = await this.cardsService.updateCard({
+    await this.cardsService.updateCard({
       where: { id: params.cardId },
       data: {
         index: body.index,
@@ -266,14 +268,17 @@ export class CardsController {
 
     for (const name of media) {
       await this.cardsService.createCardMedia({
-        card: { connect: { id: params.cardId } },
+        cardId: params.cardId,
         name
       });
     }
 
+    const populated = await this.cardsService.card({ id: params.cardId });
+    if (!populated) throw new NotFoundException({ status: "fail", message: "Card not found after update" });
+
     return {
       status: ApiResponseOptions.Success,
-      data: updated
+      data: populated
     };
   }
 
@@ -308,11 +313,11 @@ export class CardsController {
 
     if (card.set.authorId !== userCookie.id) throw new UnauthorizedException({ status: "fail", message: "Invalid authentication to access the requested resource" });
 
+    await this.cardsService.deleteCard({ id: params.cardId });
+
     return {
       status: ApiResponseOptions.Success,
-      data: await this.cardsService.deleteCard({
-        id: params.cardId
-      })
+      data: card
     };
   }
 }
