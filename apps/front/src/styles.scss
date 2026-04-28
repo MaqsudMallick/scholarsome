@@ -21,17 +21,24 @@ $enable-negative-margins: true;
 // Quill's snow theme only styles code blocks under .ql-editor. Card faces
 // render the same HTML via [innerHTML] outside that scope, so we mirror
 // Quill's code-block look for any pre.ql-syntax / code on the page.
-pre.ql-syntax {
-  background-color: #23241f;
-  color: #f8f8f2;
-  overflow: visible;
-  white-space: pre-wrap;
-  margin: 5px 0;
-  padding: 8px 12px;
+// !important is used because the flashcard view applies text-center on a
+// parent which would otherwise center each wrapped code line.
+pre.ql-syntax,
+pre.ql-syntax[spellcheck="false"] {
+  background-color: #23241f !important;
+  color: #f8f8f2 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  text-align: left !important;
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.8rem;
   border-radius: 4px;
   font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.9em;
   line-height: 1.4;
+  tab-size: 2;
 }
 
 :not(pre) > code {
@@ -41,6 +48,7 @@ pre.ql-syntax {
   border-radius: 3px;
   font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.9em;
+  word-break: break-word;
 }
 
 body {
