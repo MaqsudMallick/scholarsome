@@ -106,7 +106,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async ensureIndexes(): Promise<void> {
-    await Promise.all([
+    const tasks: Array<Promise<unknown>> = [
       this.users.createIndex({ username: 1 }, { unique: true }),
       this.users.createIndex({ email: 1 }, { unique: true }),
       this.sets.createIndex({ authorId: 1 }),
@@ -115,6 +115,18 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       this.cardMedia.createIndex({ cardId: 1 }),
       this.apiKeys.createIndex({ apiKey: 1 }, { unique: true }),
       this.apiKeys.createIndex({ userId: 1 })
-    ]);
+    ];
+
+    // An equivalent index may already exist under a different name (e.g.
+    // Prisma's `<Collection>_<field>_key` naming). MongoDB error codes:
+    //   85  IndexOptionsConflict  — same key spec, different options/name
+    //   86  IndexKeySpecsConflict — same name, different key spec
+    // Treat these as "already configured" and continue boot.
+    await Promise.all(tasks.map((p) =>
+      p.catch((err: { code?: number; codeName?: string }) => {
+        if (err?.code === 85 || err?.code === 86) return;
+        throw err;
+      })
+    ));
   }
 }
