@@ -167,31 +167,43 @@ export class CardsService {
     });
     if (!card) throw new Error("Card not found");
 
-    for (const m of card.media) {
-      await this.prisma.cardMedia.delete({ where: { id: m.id } });
-    }
+    // Use raw MongoDB commands to avoid Prisma's transaction wrapper, which
+    // requires a replica set on MongoDB.
+    await this.prisma.$runCommandRaw({
+      delete: "CardMedia",
+      deletes: [{ q: { cardId: card.id }, limit: 0 }]
+    });
+    await this.prisma.$runCommandRaw({
+      delete: "Card",
+      deletes: [{ q: { _id: card.id }, limit: 1 }]
+    });
 
-    return this.prisma.card.delete({ where: { id: card.id } });
+    return card as unknown as PrismaCard;
   }
 
-  // Standalone MongoDB has no transactions. Prisma wraps deleteMany/createMany
-  // and any cascade-delete in an internal transaction, so we walk the relation
-  // graph manually with single-document ops to avoid that.
+  // Standalone MongoDB has no transactions. Prisma wraps cascade deletes (and
+  // some related-model writes) in an internal transaction, so we issue raw
+  // MongoDB commands via $runCommandRaw to bypass it entirely.
 
   async deleteCardsBySetId(setId: string): Promise<void> {
-    const existing = await this.prisma.card.findMany({
-      where: { setId },
-      select: { id: true }
-    });
-    for (const c of existing) {
-      const mediaRows = await this.prisma.cardMedia.findMany({
-        where: { cardId: c.id },
-        select: { id: true }
+    // CardMedia.cardId references Card._id; resolve the card ids first.
+    const cardIdsResult = (await this.prisma.$runCommandRaw({
+      find: "Card",
+      filter: { setId },
+      projection: { _id: 1 }
+    })) as unknown as { cursor: { firstBatch: Array<{ _id: string }> } };
+
+    const cardIds = cardIdsResult.cursor.firstBatch.map((c) => c._id);
+
+    if (cardIds.length > 0) {
+      await this.prisma.$runCommandRaw({
+        delete: "CardMedia",
+        deletes: [{ q: { cardId: { $in: cardIds } }, limit: 0 }]
       });
-      for (const m of mediaRows) {
-        await this.prisma.cardMedia.delete({ where: { id: m.id } });
-      }
-      await this.prisma.card.delete({ where: { id: c.id } });
+      await this.prisma.$runCommandRaw({
+        delete: "Card",
+        deletes: [{ q: { setId }, limit: 0 }]
+      });
     }
   }
 

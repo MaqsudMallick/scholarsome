@@ -235,8 +235,8 @@ export class SetsService {
    */
   async deleteSet(where: Prisma.SetWhereUniqueInput): Promise<Set> {
     // Standalone MongoDB has no transactions, so we can't rely on Prisma's
-    // cascade-delete (it wraps cascades in a transaction). Walk the graph
-    // manually: CardMedia -> Card -> Set.
+    // cascade-delete (it wraps cascades in a transaction). Use raw MongoDB
+    // commands to walk the graph manually: CardMedia -> Card -> Set.
     const set = await this.prisma.set.findUnique({
       where,
       include: {
@@ -249,19 +249,20 @@ export class SetsService {
 
     const cardIds = set.cards.map((c) => c.id);
     if (cardIds.length > 0) {
-      const mediaRows = await this.prisma.cardMedia.findMany({
-        where: { cardId: { in: cardIds } },
-        select: { id: true }
+      await this.prisma.$runCommandRaw({
+        delete: "CardMedia",
+        deletes: [{ q: { cardId: { $in: cardIds } }, limit: 0 }]
       });
-      for (const m of mediaRows) {
-        await this.prisma.cardMedia.delete({ where: { id: m.id } });
-      }
-      for (const id of cardIds) {
-        await this.prisma.card.delete({ where: { id } });
-      }
+      await this.prisma.$runCommandRaw({
+        delete: "Card",
+        deletes: [{ q: { setId: set.id }, limit: 0 }]
+      });
     }
 
-    await this.prisma.set.delete({ where: { id: set.id } });
+    await this.prisma.$runCommandRaw({
+      delete: "Set",
+      deletes: [{ q: { _id: set.id }, limit: 1 }]
+    });
     return set;
   }
 }
