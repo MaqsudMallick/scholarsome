@@ -16,10 +16,9 @@ import { SetsService } from "./sets.service";
 import { UsersService } from "../users/users.service";
 import { Request as ExpressRequest } from "express";
 import { ApiResponse, ApiResponseOptions } from "@scholarsome/shared";
-import { Set } from "@prisma/client";
+import { Set, CardMedia, Prisma } from "@prisma/client";
 import * as crypto from "crypto";
 import { CardsService } from "../cards/cards.service";
-import { CardMedia } from "@prisma/client";
 import {
   ApiCreatedResponse,
   ApiNotFoundResponse,
@@ -389,18 +388,7 @@ export class SetsController {
 
       // remove all the cards linked to the set
       // as we will be recreating them all
-      await this.setsService.updateSet({
-        where: {
-          id: set.id
-        },
-        data: {
-          cards: {
-            deleteMany: {
-              setId: params.setId
-            }
-          }
-        }
-      });
+      await this.cardsService.deleteCardsBySetId(set.id);
 
       // for cards that have been entirely deleted
       // remove any media files they have attached to them
@@ -418,36 +406,26 @@ export class SetsController {
       }
     }
 
+    if (body.cards) {
+      await this.cardsService.createCardsForSet(set.id, body.cards);
+    }
+
+    const updateData: Prisma.SetUpdateInput = {
+      title: body.title,
+      description: body.description,
+      private: body.private
+    };
+
+    if (newFolderIDs.length > 0 || removedFolderIDs.length > 0) {
+      updateData.folders = {
+        connect: newFolderIDs.map((s) => ({ id: s })),
+        disconnect: removedFolderIDs.map((s) => ({ id: s }))
+      };
+    }
+
     const update = await this.setsService.updateSet({
-      where: {
-        id: set.id
-      },
-      data: {
-        title: body.title,
-        description: body.description,
-        private: body.private,
-        folders: {
-          connect: newFolderIDs.map((s) => {
-            return { id: s };
-          }),
-          disconnect: removedFolderIDs.map((s) => {
-            return { id: s };
-          })
-        },
-        cards: body.cards ? {
-          createMany: {
-            data: body.cards.map((c) => {
-              const cardData: { id?: string; index: number; term: string; definition: string } = {
-                index: c.index,
-                term: c.term,
-                definition: c.definition
-              };
-              if (c.id) cardData.id = c.id;
-              return cardData;
-            })
-          }
-        } : undefined
-      }
+      where: { id: set.id },
+      data: updateData
     });
 
     // create media entries for new media
