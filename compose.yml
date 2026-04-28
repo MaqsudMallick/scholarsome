@@ -8,8 +8,31 @@ services:
       - "MONGO_INITDB_ROOT_USERNAME=scholarsome"
       - "MONGO_INITDB_ROOT_PASSWORD=${DATABASE_PASSWORD}"
       - "MONGO_INITDB_DATABASE=scholarsome"
+    entrypoint:
+      - bash
+      - -c
+      - |
+        if [ ! -f /data/configdb/keyfile ]; then
+          openssl rand -base64 756 > /data/configdb/keyfile
+          chmod 400 /data/configdb/keyfile
+          chown 999:999 /data/configdb/keyfile
+        fi
+        (
+          until mongosh --quiet --host localhost -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+            sleep 2
+          done
+          mongosh --quiet --host localhost -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval 'try { rs.status() } catch (e) { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongodb:27017" }] }) }'
+        ) &
+        exec docker-entrypoint.sh mongod --replSet rs0 --keyFile /data/configdb/keyfile --bind_ip_all
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --host localhost -u $$MONGO_INITDB_ROOT_USERNAME -p $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval 'rs.status().ok' | grep -q 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
     volumes:
       - mongodb:/data/db
+      - mongodb_config:/data/configdb
     restart: always
   scholarsome:
     build:
@@ -21,7 +44,7 @@ services:
 #      - "(your ssl port):8443"
     environment:
       - "NODE_ENV=${NODE_ENV}"
-      - "DATABASE_URL=mongodb://scholarsome:${DATABASE_PASSWORD}@mongodb:27017/scholarsome?authSource=admin"
+      - "DATABASE_URL=mongodb://scholarsome:${DATABASE_PASSWORD}@mongodb:27017/scholarsome?authSource=admin&replicaSet=rs0"
       - "JWT_SECRET=${JWT_SECRET}"
       - "HTTP_PORT=${HTTP_PORT}"
       - "STORAGE_TYPE=${STORAGE_TYPE}"
@@ -44,8 +67,10 @@ services:
     volumes:
       - scholarsome:/data
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     restart: always
 volumes:
   mongodb:
+  mongodb_config:
   scholarsome:
